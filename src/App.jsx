@@ -19,25 +19,27 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 // ==========================================
 // 1. KONFIGURASI FIREBASE & INITIAL DATA
 // ==========================================
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyA_6C6bG3I3MmRdPtkmOk0JeOgIkFbHXyk",
-  authDomain: "sikopifasta-database.firebaseapp.com",
-  projectId: "sikopifasta-database",
-  storageBucket: "sikopifasta-database.firebasestorage.app",
-  messagingSenderId: "637428904100",
-  appId: "1:637428904100:web:f7a00bd6426f3862567631",
-  measurementId: "G-BYYMCR49V8"
-};
+// Gunakan konfigurasi sistem jika ada, atau gunakan hardcoded sebagai cadangan
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "AIzaSyA_6C6bG3I3MmRdPtkmOk0JeOgIkFbHXyk",
+      authDomain: "sikopifasta-database.firebaseapp.com",
+      projectId: "sikopifasta-database",
+      storageBucket: "sikopifasta-database.firebasestorage.app",
+      messagingSenderId: "637428904100",
+      appId: "1:637428904100:web:f7a00bd6426f3862567631",
+      measurementId: "G-BYYMCR49V8"
+    };
 
-const appId = 'sikopifasta-v4';
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// FIX: appId harus bersih agar path Firestore (odd segments) tetap valid
+const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'sikopifasta-v4';
+const appId = rawAppId.replace(/[^a-zA-Z0-9]/g, '_');
 
 const INITIAL_DATA = [
   // DUMMY DATA KENDARAAN
@@ -176,14 +178,20 @@ export default function App() {
 
   useEffect(() => {
     const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) { 
+        console.error("Auth initialization failed:", e); 
       }
     };
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setFirebaseUser(u);
+    });
     return () => unsubscribe();
   }, []);
 
@@ -245,7 +253,8 @@ export default function App() {
   }, [appSettings]);
 
   const showNotification = (msg) => {
-    setNotification(msg);
+    const messageText = typeof msg === 'string' ? msg : (msg?.message || "Terjadi kesalahan sistem.");
+    setNotification(messageText);
     setTimeout(() => setNotification(null), 3000);
   };
 
@@ -329,6 +338,7 @@ export default function App() {
             exportCategoryExcel={exportToExcel}
             onExportUsers={handleExportUsers}
             onImportUsersExcel={handleImportUsersExcel} 
+            db={db} appId={appId}
           />
         )}
         {view === 'user_panel' && currentUser?.role === 'user' && (
@@ -426,7 +436,7 @@ function Header({ view, setView, currentUser, onLogout, setSelectedCategory, onO
         {currentUser ? (
           <div className="flex items-center gap-2 sm:gap-3">
              <div className="hidden sm:flex flex-col items-end mr-1 text-right"><span className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">{currentUser.role === 'admin' ? 'Administrator' : 'Pegawai'}</span><span className="text-xs font-bold text-gray-900 leading-none">{currentUser.nama}</span></div>
-             <div className="w-10 h-10 rounded-full border-2 border-indigo-100 bg-indigo-50 flex items-center justify-center text-indigo-600 overflow-hidden shadow-inner shrink-0">{currentUser.foto ? <img src={currentUser.foto} alt="P" className="w-full h-full object-cover" /> : <User size={24} />}</div>
+             <div className="w-10 h-10 rounded-full border-2 border-indigo-100 bg-indigo-50 flex items-center justify-center text-indigo-600 overflow-hidden shadow-inner shrink-0">{currentUser.foto ? <img src={currentUser.foto} alt="P" className="w-full h-full object-cover" /> : <UserCircle size={24} />}</div>
              <button onClick={onOpenSettings} className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Pengaturan Profil"><Settings size={20} /></button>
              <button onClick={onLogout} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="Keluar"><LogOut size={20} /></button>
           </div>
@@ -450,11 +460,12 @@ function Footer() {
 }
 
 function Notification({ message }) {
+  const msgStr = String(message || "");
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] animate-in slide-in-from-bottom-10">
       <div className="bg-gray-900/95 backdrop-blur-md text-white px-8 py-4 rounded-[2rem] shadow-2xl flex items-center gap-4 border border-white/10 min-w-[320px]">
-        {message.toLowerCase().includes('berhasil') || message.toLowerCase().includes('selamat') ? <CheckCircle2 className="text-emerald-400" /> : <AlertCircle className="text-amber-400" />}
-        <span className="font-bold text-sm tracking-tight text-center">{message}</span>
+        {msgStr.toLowerCase().includes('berhasil') || msgStr.toLowerCase().includes('selamat') ? <CheckCircle2 className="text-emerald-400" /> : <AlertCircle className="text-amber-400" />}
+        <span className="font-bold text-sm tracking-tight text-center">{msgStr}</span>
       </div>
     </div>
   );
@@ -585,7 +596,7 @@ function RegistrationPortal({ setView, users, setUsers, showNotification }) {
   );
 }
 
-function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSettings, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel }) {
+function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSettings, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel, db, appId }) {
   const [adminSubView, setAdminSubView] = useState('assets'); 
   const [activeAssetTab, setActiveAssetTab] = useState('Kendaraan Dinas'); 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -626,7 +637,7 @@ function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSetting
       setData(data.map(item => item.id === editingItem.id ? { ...finalData, id: item.id } : item)); 
       showNotification("Data fasilitas berhasil diperbarui!"); 
     } else { 
-      setData([...data, { ...finalData, id: Date.now() }]); 
+      setData([...data, { ...finalData, id: `asset-${Date.now()}` }]); 
       showNotification("Data fasilitas baru berhasil ditambahkan!"); 
     } 
     closeModal(); 
@@ -644,18 +655,18 @@ function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSetting
       {adminSubView === 'assets' ? (
         <AdminAssetsSection activeAssetTab={activeAssetTab} setActiveAssetTab={setActiveAssetTab} data={data} setData={setData} openModal={openModal} openDetailModal={openDetailModal} showNotification={showNotification} adminSearch={adminSearch} setAdminSearch={setAdminSearch} adminStatusFilter={adminStatusFilter} setAdminStatusFilter={setAdminStatusFilter} exportCategoryExcel={exportCategoryExcel} onImportClick={() => fileInputRef.current?.click()} appSettings={appSettings} />
       ) : adminSubView === 'users' ? (
-        <AdminUsersSection users={users} data={data} userSearch={userSearch} setUserSearch={setUserSearch} onAddClick={() => setIsAddUserModalOpen(true)} onEdit={(u) => { setEditingUser(u); setUserFormData({nama: u.nama, nip: u.nip, email: u.email, whatsapp: u.whatsapp, username: u.username, password: u.password}); setIsUserModalOpen(true); }} onReset={(u) => { showNotification(`Password ${u.nama} direset ke password123`); }} onDelete={(u) => { showNotification(`User ${u.nama} dihapus`); }} onExportUsers={onExportUsers} onImportUsers={() => userFileInputRef.current?.click()} />
+        <AdminUsersSection users={users} data={data} userSearch={userSearch} setUserSearch={setUserSearch} onAddClick={() => setIsAddUserModalOpen(true)} onEdit={(u) => { setEditingUser(u); setUserFormData({nama: u.nama, nip: u.nip, email: u.email, whatsapp: u.whatsapp, username: u.username, password: u.password}); setIsUserModalOpen(true); }} onReset={(u) => { showNotification(`Password ${u.nama} direset ke password123`); }} onDelete={(u) => { deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.username)); showNotification(`User ${u.nama} dihapus`); }} onExportUsers={onExportUsers} onImportUsers={() => userFileInputRef.current?.click()} />
       ) : adminSubView === 'profile' ? (
         <AdminProfileSection adminProfile={adminProfile} setAdminProfile={setAdminProfile} showNotification={showNotification} />
       ) : (
         <AppSettingsSection appSettings={appSettings} setAppSettings={setAppSettings} showNotification={showNotification} />
       )}
 
-      <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={(e) => { const file = e.target.files[0]; if (!file || typeof window.XLSX === 'undefined') return; const reader = new FileReader(); reader.onload = (evt) => { const wb = window.XLSX.read(evt.target.result, { type: 'binary' }); const ws = wb.Sheets[wb.SheetNames[0]]; const importedData = window.XLSX.utils.sheet_to_json(ws); const otherCategoriesData = data.filter(item => item.kategori !== activeAssetTab); const newCategoryData = importedData.map((item, idx) => ({ ...item, id: item.id || Date.now() + idx, kategori: activeAssetTab })); setData([...otherCategoriesData, ...newCategoryData]); showNotification(`Unggah data ke ${activeAssetTab} berhasil!`); e.target.value = null; }; reader.readAsBinaryString(file); }} />
+      <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={(e) => { const file = e.target.files[0]; if (!file || typeof window.XLSX === 'undefined') return; const reader = new FileReader(); reader.onload = (evt) => { const wb = window.XLSX.read(evt.target.result, { type: 'binary' }); const ws = wb.Sheets[wb.SheetNames[0]]; const importedData = window.XLSX.utils.sheet_to_json(ws); const otherCategoriesData = data.filter(item => item.kategori !== activeAssetTab); const newCategoryData = importedData.map((item, idx) => ({ ...item, id: item.id || `asset-imp-${Date.now() + idx}`, kategori: activeAssetTab })); setData([...otherCategoriesData, ...newCategoryData]); showNotification(`Unggah data ke ${activeAssetTab} berhasil!`); e.target.value = null; }; reader.readAsBinaryString(file); }} />
       <input type="file" ref={userFileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={onImportUsersExcel} />
       
-      {isAddUserModalOpen && <AddUserModal onSubmit={(e) => { e.preventDefault(); setIsAddUserModalOpen(false); showNotification(`Pengguna baru ${addUserFormData.nama} ditambahkan!`); }} users={users} onClose={() => setIsAddUserModalOpen(false)} formData={addUserFormData} setFormData={setAddUserFormData} />}
-      {isUserModalOpen && <EditUserModal onClose={() => setIsUserModalOpen(false)} formData={userFormData} setFormData={setUserFormData} editingUser={editingUser} showNotification={showNotification} />}
+      {isAddUserModalOpen && <AddUserModal onSubmit={(e) => { e.preventDefault(); if (users.some(u => u.username === addUserFormData.username)) { showNotification("Username sudah ada!"); return; } try { const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', addUserFormData.username); setDoc(userRef, { ...addUserFormData, id: `user-${Date.now()}`, password: 'password123', role: 'user', historyTerlambat: 0, historyRusak: 0, foto: null, nama: addUserFormData.nama.toUpperCase() }); setIsAddUserModalOpen(false); setAddUserFormData({ nama: '', nip: '', email: '', whatsapp: '', username: '' }); showNotification(`Pengguna ${addUserFormData.nama} ditambahkan!`); } catch (err) { console.error(err); } }} users={users} onClose={() => setIsAddUserModalOpen(false)} formData={addUserFormData} setFormData={setAddUserFormData} />}
+      {isUserModalOpen && <EditUserModal onClose={() => setIsUserModalOpen(false)} formData={userFormData} setFormData={setUserFormData} editingUser={editingUser} db={db} appId={appId} showNotification={showNotification} />}
       {isModalOpen && <AssetModal activeAssetTab={activeAssetTab} editingItem={editingItem} formData={formData} setFormData={setFormData} closeModal={closeModal} handleAddOrEdit={handleAddOrEdit} />}
       {isDetailModalOpen && <AssetDetailModal selectedDetailItem={selectedDetailItem} closeDetailModal={closeDetailModal} />}
     </div>
@@ -670,7 +681,7 @@ function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, setData, 
   
   const filteredAndSortedData = categoryData.filter(item => {
     const searchString = adminSearch.toLowerCase();
-    const matchSearch = item.nama.toLowerCase().includes(searchString) || (item.noPlat && item.noPlat.toLowerCase().includes(searchString)) || (item.nup && item.nup.toLowerCase().includes(searchString)) || (item.merek && item.merek.toLowerCase().includes(searchString)) || (item.peminjam && item.peminjam.toLowerCase().includes(searchString));
+    const matchSearch = (item.nama || "").toLowerCase().includes(searchString) || (item.noPlat && item.noPlat.toLowerCase().includes(searchString)) || (item.nup && item.nup.toLowerCase().includes(searchString)) || (item.merek && item.merek.toLowerCase().includes(searchString)) || (item.peminjam && item.peminjam.toLowerCase().includes(searchString));
     const matchStatus = adminStatusFilter === 'Semua' ? true : item.status === adminStatusFilter;
     return matchSearch && matchStatus;
   }).sort((a, b) => {
@@ -713,24 +724,24 @@ function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, setData, 
               {filteredAndSortedData.map(item => {
                 const isOverdue = checkOverdue(item);
                 return (
-                  <tr key={item.id} className={`transition-colors ${isOverdue ? 'bg-red-50/70' : 'hover:bg-slate-50'}`}>
-                    <td className="px-6 py-5 flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                  <tr key={item.id} className={`transition-colors ${isOverdue ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}>
+                    <td className="px-6 py-5 flex items-center gap-4 text-left">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
                         {item.kategori === 'Kendaraan Dinas' ? <Car size={20}/> : item.kategori === 'Peralatan Elektronik' ? <Laptop size={20}/> : <Package size={20}/>}
                       </div>
                       <div>
-                        <div className="font-bold text-gray-900 uppercase">{item.nama}</div>
-                        <div className="text-[10px] text-gray-400">{item.noPlat || item.nup}</div>
+                        <div className="font-bold text-gray-900 uppercase leading-none mb-1">{item.nama}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">{item.noPlat || item.nup || item.id}</div>
                       </div>
                     </td>
                     <td className="px-6 py-5 font-bold text-gray-800 uppercase text-xs">{item.peminjam || '-'}</td>
-                    <td className="px-6 py-5 text-gray-500">{item.tglPinjam || '-'}</td>
+                    <td className="px-6 py-5 text-gray-500 font-medium">{item.tglPinjam || '-'}</td>
                     <td className="px-6 py-5">
                        <span className={`font-bold ${isOverdue ? 'text-red-600' : 'text-gray-700'}`}>{item.tglKembali || '-'}</span>
                        {isOverdue && <span className="block text-[8px] font-black uppercase text-red-500 tracking-tighter mt-0.5">TERLAMBAT</span>}
                     </td>
                     <td className="px-6 py-5 text-center">
-                      <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${item.status === 'Tersedia' ? 'bg-green-50 text-green-700' : item.status === 'Dipinjam' ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700'}`}>
+                      <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border ${item.status === 'Tersedia' ? 'bg-green-50 text-green-700 border-green-100' : item.status === 'Dipinjam' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
                         {item.status}
                       </span>
                     </td>
@@ -750,62 +761,36 @@ function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, setData, 
   );
 }
 
-function AdminUsersSection({ users, data, userSearch, setUserSearch, onAddClick, onEdit, onReset, onDelete, onExportUsers, onImportUsers }) {
-  const filteredUsers = users.filter(u => u.nama.toLowerCase().includes(userSearch.toLowerCase()) || u.username.toLowerCase().includes(userSearch.toLowerCase()) || u.nip.includes(userSearch));
+function AdminUsersSection({ users, userSearch, setUserSearch, onAddClick, onEdit, onReset, onDelete, onExportUsers, onImportUsers }) {
+  const filteredUsers = users.filter(u => (u.nama || "").toLowerCase().includes(userSearch.toLowerCase()) || (u.username || "").toLowerCase().includes(userSearch.toLowerCase()) || (u.nip || "").includes(userSearch));
   
   return (
     <div className="animate-in fade-in text-left">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-        <div><h2 className="text-2xl font-black text-gray-900 mb-1 uppercase tracking-tight">Manajemen Pengguna</h2><p className="text-gray-500 text-sm font-medium italic">Total: <span className="text-indigo-600 font-bold">{users.length} Pegawai</span></p></div>
+        <div><h2 className="text-2xl font-black text-gray-900 mb-1 uppercase tracking-tight">Manajemen Pengguna</h2><p className="text-gray-400 text-sm font-medium italic">Total: <span className="text-indigo-600 font-bold">{users.length} Pegawai</span></p></div>
         <div className="flex flex-wrap gap-3">
           <button onClick={onImportUsers} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-700 border border-emerald-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all text-xs uppercase tracking-widest"><Upload size={18} /> Restore</button>
           <button onClick={onExportUsers} className="flex-1 sm:flex-none bg-blue-50 text-blue-700 border border-blue-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all text-xs uppercase tracking-widest"><Database size={18} /> Backup</button>
           <button onClick={onAddClick} className="flex-1 sm:flex-none bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-xl uppercase tracking-widest text-xs"><UserPlus size={20} /> Tambah User</button>
         </div>
       </div>
-      <div className="relative mb-6"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Cari berdasarkan nama, NIP, atau username..." className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 outline-none font-bold shadow-sm" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} /></div>
-      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm min-w-[1000px]">
-            <thead className="bg-gray-50/50 border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">Identitas Pegawai</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">NIP / Username</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">Kontak / Email</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">Role</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredUsers.map(u => (
-                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 overflow-hidden shrink-0 border border-indigo-200">
-                      {u.foto ? <img src={u.foto} className="w-full h-full object-cover" /> : <User className="w-full h-full p-2 text-indigo-400" />}
-                    </div>
-                    <div><div className="font-bold text-gray-900 uppercase">{u.nama}</div><div className="text-[10px] text-gray-400 font-bold italic">Tergabung: {u.role}</div></div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-gray-700">{u.nip}</div>
-                    <div className="text-xs text-indigo-600 font-bold">@{u.username}</div>
-                  </td>
-                  <td className="px-6 py-4 text-xs font-medium">
-                    <div className="flex items-center gap-1.5"><Phone size={12}/> {u.whatsapp}</div>
-                    <div className="flex items-center gap-1.5"><Mail size={12}/> {u.email}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{u.role}</span>
-                  </td>
-                  <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    <button onClick={() => onReset(u)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg" title="Reset Password"><RotateCcw size={18}/></button>
-                    <button onClick={() => onEdit(u)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg" title="Edit Profil"><Edit size={18}/></button>
-                    <button onClick={() => onDelete(u)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg" title="Hapus User"><Trash2 size={18}/></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="relative mb-6"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Cari nama, NIP, atau username..." className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 outline-none font-bold shadow-sm" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} /></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {filteredUsers.map(u => (
+          <div key={u.id} className="p-6 bg-white rounded-3xl border border-gray-100 shadow-sm flex justify-between items-center group hover:border-indigo-200 transition-all">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full border-2 border-indigo-50 bg-indigo-50 overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
+                {u.foto ? <img src={u.foto} className="w-full h-full object-cover" /> : <User size={24} className="text-indigo-400" />}
+              </div>
+              <div><p className="font-bold text-gray-900 uppercase leading-none mb-1">{u.nama}</p><p className="text-[10px] text-gray-400 font-black tracking-widest uppercase">@{u.username} • {u.role}</p></div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => onReset(u)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-colors"><RotateCcw size={18}/></button>
+              <button onClick={() => onEdit(u)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl transition-colors"><Edit size={18}/></button>
+              <button onClick={() => onDelete(u)} className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-colors"><Trash2 size={18}/></button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -813,40 +798,25 @@ function AdminUsersSection({ users, data, userSearch, setUserSearch, onAddClick,
 
 function AdminProfileSection({ adminProfile, setAdminProfile, showNotification }) {
   const [formData, setFormData] = useState({ ...adminProfile });
-  const [showPass, setShowPass] = useState(false);
-
-  const handleUpdate = (e) => {
-    e.preventDefault();
-    setAdminProfile({...formData, nama: formData.nama.toUpperCase()});
-    showNotification("Profil admin berhasil diperbarui!");
-  };
-
+  const handleUpdate = (e) => { e.preventDefault(); setAdminProfile({...formData, nama: formData.nama.toUpperCase()}); showNotification("Profil berhasil diperbarui!"); };
   return (
-    <div className="animate-in fade-in max-w-2xl mx-auto text-left">
-      <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden p-8">
+    <div className="animate-in fade-in max-w-xl mx-auto text-left">
+      <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm p-8">
         <div className="flex flex-col items-center mb-8">
            <div className="relative group">
-              <div className="w-32 h-32 rounded-[2.5rem] bg-indigo-50 border-4 border-indigo-100 overflow-hidden shadow-inner">
-                {formData.foto ? <img src={formData.foto} className="w-full h-full object-cover" /> : <UserCircle size={100} className="text-indigo-200 mt-2 mx-auto" />}
+              <div className="w-32 h-32 rounded-[2.5rem] bg-indigo-50 border-4 border-indigo-100 overflow-hidden shadow-inner flex items-center justify-center">
+                {formData.foto ? <img src={formData.foto} className="w-full h-full object-cover" /> : <UserCircle size={100} className="text-indigo-100" />}
               </div>
               <button className="absolute -bottom-2 -right-2 bg-white p-2 rounded-xl shadow-lg border border-gray-100 text-indigo-600 hover:scale-110 transition-transform"><Camera size={18}/></button>
            </div>
            <h2 className="text-xl font-black mt-4 uppercase tracking-tight">{adminProfile.nama}</h2>
-           <p className="text-gray-400 text-xs font-bold uppercase tracking-[0.2em] mt-1 italic">Master Administrator</p>
+           <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest mt-1 italic">Master Administrator</p>
         </div>
         <form onSubmit={handleUpdate} className="space-y-4">
-           <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold uppercase" /></div>
+           <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold uppercase" /></div>
            <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP Pegawai</label><input value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-3.5 bg-gray-100 rounded-2xl border-none outline-none font-bold text-gray-400 cursor-not-allowed" /></div>
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp</label><input value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
-           </div>
-           <div className="pt-4 border-t border-dashed">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Foto Profil (URL)</label>
-              <input value={formData.foto || ''} onChange={e => setFormData({...formData, foto: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold text-xs" placeholder="https://..." />
+              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP</label><input value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
+              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-3.5 bg-gray-100 rounded-2xl border-none font-bold text-gray-400 cursor-not-allowed" /></div>
            </div>
            <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all mt-4 flex items-center justify-center gap-2"><Save size={20}/> Simpan Perubahan</button>
         </form>
@@ -857,76 +827,45 @@ function AdminProfileSection({ adminProfile, setAdminProfile, showNotification }
 
 function AppSettingsSection({ appSettings, setAppSettings, showNotification }) {
   const [formData, setFormData] = useState({ ...appSettings });
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    setAppSettings(formData);
-    showNotification("Konfigurasi sistem berhasil disimpan!");
-  };
-
+  const handleSave = (e) => { e.preventDefault(); setAppSettings(formData); showNotification("Sistem berhasil disinkronisasi!"); };
   return (
     <div className="animate-in fade-in max-w-2xl mx-auto text-left">
       <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm p-8">
-        <div className="flex items-center gap-4 mb-8">
-           <div className="bg-indigo-100 p-3 rounded-2xl text-indigo-600"><Globe size={24}/></div>
-           <div><h2 className="text-xl font-black uppercase tracking-tight leading-none mb-1">Konfigurasi Sinkronisasi</h2><p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Tautkan Google Sheets ke Sistem</p></div>
-        </div>
+        <h2 className="text-xl font-black mb-6 uppercase tracking-tight flex items-center gap-3"><Globe className="text-indigo-600"/> Konfigurasi Sinkronisasi</h2>
         <form onSubmit={handleSave} className="space-y-6">
-           <div className="p-6 bg-slate-50 rounded-3xl space-y-4">
-              <div><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest ml-1">DB Kendaraan Dinas (XLSX Link)</label><input value={formData.linkDbKendaraan} onChange={e => setFormData({...formData, linkDbKendaraan: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
-              <div><label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest ml-1">DB Peralatan Elektronik</label><input value={formData.linkDbElektronik} onChange={e => setFormData({...formData, linkDbElektronik: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
-              <div><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">DB Barang Lain</label><input value={formData.linkDbBarangLain} onChange={e => setFormData({...formData, linkDbBarangLain: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
-              <div><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest ml-1">DB Backup Pengguna</label><input value={formData.linkDbUsers} onChange={e => setFormData({...formData, linkDbUsers: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
+           <div className="p-6 bg-slate-50 rounded-[2rem] space-y-4 border border-gray-100">
+              <div><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest ml-1 block mb-1">Link Database Kendaraan Dinas (XLSX)</label><input value={formData.linkDbKendaraan} onChange={e => setFormData({...formData, linkDbKendaraan: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
+              <div><label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest ml-1 block mb-1">Link Database Peralatan Elektronik</label><input value={formData.linkDbElektronik} onChange={e => setFormData({...formData, linkDbElektronik: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
+              <div><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1 block mb-1">Link Database Barang Lain</label><input value={formData.linkDbBarangLain} onChange={e => setFormData({...formData, linkDbBarangLain: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
            </div>
-           <div className="p-5 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-start gap-4">
-              <Info className="text-indigo-600 shrink-0" size={20}/>
-              <p className="text-xs text-indigo-800 font-medium leading-relaxed">Pastikan tautan Google Sheets memiliki izin akses **"Anyone with the link"** sebagai **"Viewer"** agar sistem dapat mengekspor data secara otomatis.</p>
-           </div>
-           <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><Save size={20}/> Terapkan Tautan</button>
+           <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><Save size={20}/> Terapkan Tautan</button>
         </form>
       </div>
     </div>
   );
 }
 
-function EditUserModal({ onClose, formData, setFormData, editingUser, showNotification }) {
-  const handleUpdate = (e) => {
+function EditUserModal({ onClose, formData, setFormData, editingUser, db, appId, showNotification }) {
+  const handleUpdate = async (e) => {
     e.preventDefault();
-    onClose();
-    showNotification(`Data ${formData.nama} berhasil diperbarui!`);
+    try {
+      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUser.username);
+      await setDoc(userRef, { ...editingUser, ...formData, nama: formData.nama.toUpperCase() }, { merge: true });
+      showNotification(`Data ${formData.nama} diperbarui!`);
+      onClose();
+    } catch (e) { showNotification("Gagal memperbarui user."); }
   };
-
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 text-left"><div className="flex items-center gap-3"><Edit className="text-indigo-600" /><h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Edit Data Pengguna</h3></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X /></button></div>
-        <form onSubmit={handleUpdate} className="p-8 space-y-4 text-left">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto text-left">
+        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10"><h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Edit Pengguna</h3><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X /></button></div>
+        <form onSubmit={handleUpdate} className="p-8 space-y-4">
           <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold uppercase" /></div>
-          <div className="grid grid-cols-2 gap-4">
-             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP</label><input required value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
-             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-3.5 bg-gray-100 border-none rounded-2xl outline-none font-bold text-gray-400 cursor-not-allowed" /></div>
-          </div>
           <div className="grid grid-cols-2 gap-4">
              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp</label><input required value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
           </div>
-          <div className="flex gap-4 pt-6"><button type="button" onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold">Batal</button><button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold">Simpan</button></div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AddUserModal({ onSubmit, users, onClose, formData, setFormData }) {
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 text-left"><div className="flex items-center gap-3"><UserPlus className="text-indigo-600" /><h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Tambah Pengguna Baru</h3></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X /></button></div>
-        <form onSubmit={onSubmit} className="p-8 space-y-4 text-left">
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 outline-none font-bold uppercase" /></div>
-          <div className="grid grid-cols-2 gap-4"><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP</label><input required value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value.toLowerCase().replace(/\s/g, '')})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div></div>
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
-          <div className="flex gap-4 pt-6"><button type="button" onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold">Batal</button><button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold">Tambah</button></div>
+          <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold mt-4">Simpan Perubahan</button>
         </form>
       </div>
     </div>
@@ -935,82 +874,33 @@ function AddUserModal({ onSubmit, users, onClose, formData, setFormData }) {
 
 function AssetModal({ activeAssetTab, editingItem, formData, setFormData, closeModal, handleAddOrEdit }) {
   const isVehicle = activeAssetTab === 'Kendaraan Dinas';
-  const isElectronic = activeAssetTab === 'Peralatan Elektronik';
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 text-left">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl text-white ${isVehicle ? 'bg-indigo-600' : isElectronic ? 'bg-emerald-600' : 'bg-amber-600'}`}>
-              {isVehicle ? <Car size={24} /> : isElectronic ? <Laptop size={24} /> : <Package size={24} />}
-            </div>
-            <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">{editingItem ? 'Edit' : 'Tambah'} {activeAssetTab}</h3>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in zoom-in-95">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto text-left">
+        <div className="p-8 border-b flex justify-between items-center sticky top-0 bg-white z-10"><h3 className="text-xl font-black uppercase tracking-tight">{editingItem ? 'Edit' : 'Tambah'} {activeAssetTab}</h3><button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"><X /></button></div>
+        <form onSubmit={handleAddOrEdit} className="p-8 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Nama Unit</label><input required placeholder="CONTOH: TOYOTA AVANZA" className="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold uppercase border-none" value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} /></div>
+            <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Status</label><select className="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border-none cursor-pointer" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}><option value="Tersedia">Tersedia</option><option value="Dipinjam">Dipinjam</option><option value="Rusak">Rusak</option></select></div>
           </div>
-          <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-400"><X /></button>
-        </div>
-        <form onSubmit={handleAddOrEdit} className="p-8 space-y-6 text-left">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {!isVehicle && (
-              <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Kode NUP</label><input required value={formData.nup || ''} onChange={e => setFormData({...formData, nup: e.target.value})} className="w-full px-5 py-4 bg-gray-50 rounded-2xl outline-none font-bold" placeholder="LNN-XXXX" /></div>
-            )}
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Nama {isVehicle ? 'Kendaraan' : isElectronic ? 'Alat' : 'Barang'}</label>
-              {isElectronic ? (
-                <select value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value})} className="w-full px-4 py-4 bg-gray-50 rounded-2xl outline-none font-bold">
-                  {ELEKTRONIK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
-              ) : (
-                <input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value})} className="w-full px-5 py-4 bg-gray-50 rounded-2xl outline-none font-bold" placeholder="Contoh: Toyota Avanza" />
-              )}
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Plat / NUP</label><input placeholder="IDENTITAS" className="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold uppercase border-none" value={isVehicle ? formData.noPlat : (formData.nup || '')} onChange={e => setFormData(isVehicle ? {...formData, noPlat: e.target.value} : {...formData, nup: e.target.value})} /></div>
+            <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">Merek</label><input placeholder="MEREK" className="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold uppercase border-none" value={formData.merek || ''} onChange={e => setFormData({...formData, merek: e.target.value.toUpperCase()})} /></div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Status</label><select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="w-full px-4 py-4 bg-gray-50 rounded-2xl outline-none font-bold"><option value="Tersedia">Tersedia</option><option value="Dipinjam">Dipinjam</option><option value="Rusak">Rusak</option></select></div>
-            {formData.status === 'Rusak' && (
-              <div className="space-y-2 animate-in slide-in-from-top-2"><label className="text-xs font-black text-red-500 uppercase tracking-widest ml-1">Deskripsi Kerusakan</label><textarea required value={formData.deskripsiRusak || ''} onChange={e => setFormData({...formData, deskripsiRusak: e.target.value})} className="w-full px-5 py-3 bg-red-50 rounded-2xl outline-none font-bold border border-red-100 h-24" placeholder="Sebutkan detail kerusakan..." /></div>
-            )}
-          </div>
-
           {formData.status === 'Dipinjam' && (
-            <div className="p-6 bg-orange-50 rounded-3xl space-y-4 border border-orange-100 animate-in slide-in-from-top-2">
-              <div className="flex items-center gap-2 mb-2"><Clock className="text-orange-600" size={18}/><span className="text-xs font-black text-orange-900 uppercase tracking-widest">Informasi Peminjaman</span></div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Peminjam</label>
-                <input required value={formData.peminjam || ''} onChange={e => setFormData({...formData, peminjam: e.target.value.toUpperCase()})} className="w-full px-5 py-3 bg-white rounded-xl outline-none font-bold border border-orange-200" placeholder="MASUKKAN NAMA PEMINJAM" />
-              </div>
+            <div className="p-6 bg-orange-50 rounded-[2rem] space-y-4 border border-orange-100 animate-in slide-in-from-top-2">
+              <div className="flex items-center gap-2 mb-2"><Clock className="text-orange-600" size={18}/><span className="text-xs font-black text-orange-900 uppercase">Informasi Pinjam</span></div>
+              <input required placeholder="NAMA LENGKAP PEMINJAM" className="w-full px-5 py-3.5 bg-white rounded-xl outline-none font-bold uppercase border border-orange-200" value={formData.peminjam || ''} onChange={e => setFormData({...formData, peminjam: e.target.value.toUpperCase()})} />
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Pinjam</label>
-                  <input required type="date" value={formData.tglPinjam || ''} onChange={e => setFormData({...formData, tglPinjam: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl outline-none font-bold border border-orange-200" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Kembali</label>
-                  <input required type="date" value={formData.tglKembali || ''} onChange={e => setFormData({...formData, tglKembali: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl outline-none font-bold border border-orange-200" />
-                </div>
+                <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1">Mulai Pinjam</label><input type="date" required className="w-full px-5 py-3.5 bg-white rounded-xl outline-none font-bold border border-orange-200" value={formData.tglPinjam || ''} onChange={e => setFormData({...formData, tglPinjam: e.target.value})} /></div>
+                <div><label className="text-[10px] font-black text-gray-400 uppercase ml-1">Jatuh Tempo</label><input type="date" required className="w-full px-5 py-3.5 bg-white rounded-xl outline-none font-bold border border-orange-200" value={formData.tglKembali || ''} onChange={e => setFormData({...formData, tglKembali: e.target.value})} /></div>
               </div>
             </div>
           )}
-
-          {isVehicle && (
-            <div className="space-y-6 pt-4 border-t border-dashed">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nomor Plat</label><input required value={formData.noPlat || ''} onChange={e => setFormData({...formData, noPlat: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold font-mono" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">No. Rangka</label><input value={formData.noRangka || ''} onChange={e => setFormData({...formData, noRangka: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold text-xs" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">No. Mesin</label><input value={formData.noMesin || ''} onChange={e => setFormData({...formData, noMesin: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold text-xs" /></div>
-              </div>
-            </div>
+          {formData.status === 'Rusak' && (
+            <div className="space-y-2 animate-in slide-in-from-top-2"><label className="text-xs font-black text-red-500 uppercase ml-1">Deskripsi Kerusakan</label><textarea required className="w-full px-5 py-3.5 bg-red-50 border border-red-100 rounded-2xl outline-none font-bold text-red-900 h-24" placeholder="Detail kerusakan..." value={formData.deskripsiRusak || ''} onChange={e => setFormData({...formData, deskripsiRusak: e.target.value})} /></div>
           )}
-
-          {!isVehicle && (
-            <div className="grid grid-cols-1 gap-6 pt-4 border-t border-dashed">
-              <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Merek</label><input required value={formData.merek || ''} onChange={e => setFormData({...formData, merek: e.target.value})} className="w-full px-5 py-3 bg-gray-50 rounded-2xl outline-none font-bold" placeholder="Contoh: Epson / MacBook" /></div>
-              <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Spesifikasi Detail</label><textarea value={formData.spek || ''} onChange={e => setFormData({...formData, spek: e.target.value})} className="w-full px-5 py-4 bg-gray-50 rounded-2xl outline-none font-bold h-32" placeholder="Masukkan spesifikasi lengkap..." /></div>
-            </div>
-          )}
-
-          <div className="flex gap-4 pt-6"><button type="button" onClick={closeModal} className="flex-1 py-4 rounded-2xl font-bold bg-gray-100 uppercase tracking-widest text-xs">Batal</button><button type="submit" className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs">Simpan Data</button></div>
+          <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase shadow-xl hover:bg-indigo-700 transition-all active:scale-95">Simpan Data</button>
         </form>
       </div>
     </div>
@@ -1022,74 +912,45 @@ function AssetDetailModal({ selectedDetailItem, closeDetailModal }) {
   const isVehicle = selectedDetailItem.kategori === 'Kendaraan Dinas';
   const isElectronic = selectedDetailItem.kategori === 'Peralatan Elektronik';
   const themeColor = isVehicle ? 'bg-indigo-600' : isElectronic ? 'bg-emerald-600' : 'bg-amber-600';
+  const overdue = selectedDetailItem.status === 'Dipinjam' && selectedDetailItem.tglKembali && new Date(selectedDetailItem.tglKembali) < new Date();
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <div className={`p-8 border-b border-gray-100 flex items-center justify-between ${themeColor} text-white`}>
-          <div className="flex items-center gap-3 text-left">
-            <div className="bg-white/20 p-2 rounded-xl">{isVehicle ? <Car size={24} /> : isElectronic ? <Laptop size={24} /> : <Package size={24} />}</div>
-            <div><h3 className="text-xl font-black uppercase tracking-tight leading-none mb-1">Rincian Unit</h3><p className="text-white/80 text-[10px] uppercase">Informasi Detail Aset</p></div>
-          </div>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in text-left">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[85vh]">
+        <div className={`p-8 ${themeColor} text-white flex justify-between items-center`}>
+          <div><h3 className="text-xl font-black uppercase leading-none tracking-tight">Rincian Unit</h3><p className="text-white/60 text-[10px] uppercase mt-1 tracking-widest">Informasi Aset Kantor</p></div>
           <button onClick={closeDetailModal} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><X /></button>
         </div>
-        <div className="p-8 overflow-y-auto space-y-8 text-left">
-          <div className="p-6 bg-slate-50 rounded-3xl border border-gray-100">
-            <h2 className="text-3xl font-black text-slate-900 uppercase leading-tight">{selectedDetailItem.nama}</h2>
-            <div className="flex items-center gap-2 mt-2">
-              <div className={`${themeColor} text-white px-4 py-1 rounded-lg font-mono font-bold`}>{selectedDetailItem.noPlat || selectedDetailItem.nup || '-'}</div>
-              <span className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase bg-white border border-gray-200`}>{selectedDetailItem.status}</span>
+        <div className="p-8 overflow-y-auto space-y-6">
+          <div className="bg-slate-50 p-6 rounded-[2rem] border border-gray-100 shadow-inner">
+            <h2 className="text-2xl font-black text-gray-900 uppercase leading-tight">{selectedDetailItem.nama}</h2>
+            <div className="flex flex-wrap gap-2 mt-4">
+              <span className="bg-white px-4 py-1.5 rounded-xl font-mono font-bold border border-gray-200 text-xs text-gray-600 uppercase shadow-sm">{selectedDetailItem.noPlat || selectedDetailItem.nup || 'No ID'}</span>
+              <span className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border ${selectedDetailItem.status === 'Tersedia' ? 'bg-green-100 text-green-700 border-green-200' : selectedDetailItem.status === 'Dipinjam' ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{selectedDetailItem.status}</span>
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-            <div className="space-y-4">
-              <h4 className="font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><ClipboardList size={16} /> Identitas Fisik</h4>
-              <div className="space-y-2">
-                {isVehicle ? (
-                  <>
-                    <div className="flex justify-between"><span>No. Rangka:</span><span className="font-bold font-mono text-[10px]">{selectedDetailItem.noRangka || '-'}</span></div>
-                    <div className="flex justify-between"><span>No. Mesin:</span><span className="font-bold font-mono text-[10px]">{selectedDetailItem.noMesin || '-'}</span></div>
-                    <div className="flex justify-between"><span>Kilometer:</span><span className="font-bold text-indigo-600">{selectedDetailItem.kilometer || '0'} KM</span></div>
-                    <div className="flex justify-between"><span>Tgl Pajak:</span><span className="font-bold text-amber-600">{selectedDetailItem.tglPajak || '-'}</span></div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex justify-between"><span>Kode NUP:</span><span className="font-bold">{selectedDetailItem.nup || '-'}</span></div>
-                    <div className="flex justify-between"><span>Merek:</span><span className="font-bold uppercase">{selectedDetailItem.merek || '-'}</span></div>
-                  </>
-                )}
-                <div className="flex justify-between"><span>Kategori:</span><span className="font-bold uppercase text-[10px]">{selectedDetailItem.kategori}</span></div>
+          {selectedDetailItem.status === 'Dipinjam' && (
+            <div className={`p-6 rounded-[2rem] border ${overdue ? 'bg-red-50 border-red-100' : 'bg-orange-50 border-orange-100'}`}>
+              <h4 className={`text-sm font-black uppercase mb-4 flex items-center gap-2 ${overdue ? 'text-red-700' : 'text-orange-700'}`}><UserCheck size={18} /> Informasi Peminjam</h4>
+              <div className="space-y-4">
+                <div><p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Nama Peminjam</p><p className={`font-black uppercase text-xl ${overdue ? 'text-red-900' : 'text-orange-900'}`}>{selectedDetailItem.peminjam || '-'}</p></div>
+                <div className="flex gap-8">
+                   <div><p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Pinjam Sejak</p><p className="font-bold text-gray-900">{selectedDetailItem.tglPinjam || '-'}</p></div>
+                   <div><p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Jatuh Tempo</p><p className={`font-bold ${overdue ? 'text-red-600' : 'text-gray-900'}`}>{selectedDetailItem.tglKembali || '-'}</p></div>
+                </div>
+                {overdue && <div className="flex items-center gap-2 text-[10px] font-black text-red-600 bg-white/60 p-3 rounded-2xl animate-pulse border border-red-200 uppercase tracking-widest"><AlertCircle size={14}/> Melewati Batas Pengembalian</div>}
               </div>
             </div>
-
-            <div className="space-y-4 text-left">
-              <h4 className="font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><Wrench size={16} /> Spesifikasi</h4>
-              <div className="p-3 bg-slate-50 rounded-xl italic text-xs leading-relaxed">{selectedDetailItem.spek || 'Tidak ada spesifikasi tambahan.'}</div>
-            </div>
-          </div>
-
-          {selectedDetailItem.status === 'Dipinjam' && (
-            <div className="bg-orange-50 p-5 rounded-3xl border border-orange-100 animate-in fade-in">
-               <h4 className="text-sm font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-orange-200 pb-2"><UserCheck size={18} /> Informasi Peminjam</h4>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div><p className="text-[10px] text-orange-400 font-black uppercase">Peminjam</p><p className="font-bold text-orange-900 uppercase">{selectedDetailItem.peminjam || '-'}</p></div>
-                 <div className="flex gap-4">
-                    <div><p className="text-[10px] text-orange-400 font-black uppercase">Tgl Pinjam</p><p className="font-bold text-orange-900">{selectedDetailItem.tglPinjam || '-'}</p></div>
-                    <div><p className="text-[10px] text-orange-400 font-black uppercase">Tgl Kembali</p><p className="font-bold text-orange-900">{selectedDetailItem.tglKembali || '-'}</p></div>
-                 </div>
-               </div>
-            </div>
           )}
-
           {selectedDetailItem.status === 'Rusak' && (
-            <div className="bg-red-50 p-5 rounded-3xl border border-red-100 animate-in fade-in">
-               <h4 className="text-sm font-black text-red-700 uppercase tracking-widest mb-2 flex items-center gap-2"><AlertCircle size={18} /> Detail Kerusakan</h4>
-               <p className="text-red-900 font-medium italic text-xs leading-relaxed">"{selectedDetailItem.deskripsiRusak || 'Keterangan belum diisi.'}"</p>
-            </div>
+            <div className="bg-red-50 p-6 rounded-[2rem] border border-red-100 shadow-sm"><h4 className="text-sm font-black text-red-700 uppercase mb-2 flex items-center gap-2 tracking-widest"><Wrench size={18}/> Detail Kerusakan</h4><p className="text-red-900 italic font-medium leading-relaxed">"{selectedDetailItem.deskripsiRusak || 'Keterangan kerusakan belum diisi.'}"</p></div>
           )}
+          <div className="space-y-4 text-sm">
+            <h4 className="font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 pb-2 flex items-center gap-2 ml-1"><ClipboardList size={16}/> Spesifikasi Teknis</h4>
+            <div className="bg-slate-50 p-6 rounded-[2rem] italic text-gray-600 leading-relaxed border border-gray-100 shadow-inner">{selectedDetailItem.spek || 'Tidak ada spesifikasi tambahan.'}</div>
+          </div>
         </div>
-        <div className="p-8 border-t border-gray-100 bg-gray-50 flex justify-end"><button onClick={closeDetailModal} className={`${themeColor} text-white px-10 py-4 rounded-[1.8rem] font-black uppercase text-xs shadow-lg transition-all active:scale-95`}>Tutup Rincian</button></div>
+        <div className="p-8 border-t bg-gray-50 flex justify-end"><button onClick={closeDetailModal} className="px-10 py-4 bg-white border border-gray-200 rounded-[1.5rem] font-black uppercase text-xs hover:bg-gray-100 shadow-sm transition-all active:scale-95 tracking-widest text-gray-600">Tutup Rincian</button></div>
       </div>
     </div>
   );
