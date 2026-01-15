@@ -104,7 +104,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  // AUTHENTICATION LOGIC (MANDATORY RULE 3)
+  // AUTHENTICATION LOGIC (RULE 3)
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -124,23 +124,32 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // REAL-TIME USERS SYNC (MANDATORY RULE 1)
+  // REAL-TIME USERS SYNC (RULE 1)
   useEffect(() => {
     if (!firebaseUser) return;
     const usersCol = collection(db, 'artifacts', appId, 'public', 'data', 'users');
     const unsubscribe = onSnapshot(usersCol, (snapshot) => {
       const usersFromDb = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-      // Gabungkan Admin Master statis dengan user dari DB
-      setUsers([...INITIAL_USERS, ...usersFromDb.filter(u => u.username !== 'admin')]);
+      
+      // PERBAIKAN LOGIKA SYNC: 
+      // Kita gabungkan data dari database. Jika ada data 'admin' di DB, ia akan menimpa data statis.
+      // Ini penting agar 'linkedUid' milik admin di DB bisa terbaca untuk restore sesi.
+      const combined = [...usersFromDb];
+      INITIAL_USERS.forEach(iu => {
+        if (!combined.find(u => u.username === iu.username)) {
+          combined.push(iu);
+        }
+      });
+      setUsers(combined);
     }, (err) => console.error("Firestore Users Error:", err));
     return () => unsubscribe();
   }, [firebaseUser]);
 
-  // SESSION RESTORATION LOGIC (MEMASTIKAN LOGIN TIDAK HILANG SAAT REFRESH)
+  // SESSION RESTORATION LOGIC
   useEffect(() => {
-    if (!firebaseUser || currentUser || isLoadingAuth) return;
+    // Jalankan pemulihan hanya jika data users sudah dimuat
+    if (!firebaseUser || currentUser || isLoadingAuth || users.length === 0) return;
 
-    // Tunggu sampai data users dari Firebase masuk
     const savedUser = users.find(u => u.linkedUid === firebaseUser.uid);
     if (savedUser) {
       setCurrentUser(savedUser);
@@ -176,7 +185,6 @@ export default function App() {
   }, []);
 
   const showNotification = (msg) => {
-    // Pastikan msg adalah string untuk mencegah error React Child
     const messageText = typeof msg === 'string' ? msg : (msg?.message || "Terjadi kesalahan sistem.");
     setNotification(messageText);
     setTimeout(() => setNotification(null), 4000);
@@ -186,7 +194,6 @@ export default function App() {
     if (currentUser && firebaseUser) {
       try {
         const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.username);
-        // Gunakan setDoc merge agar tidak error jika dokumen belum ada di DB
         await setDoc(userRef, { linkedUid: null }, { merge: true });
       } catch (e) { console.error("Logout update failed", e); }
     }
@@ -371,6 +378,7 @@ function UserProfileModal({ currentUser, setCurrentUser, onClose, showNotificati
 }
 
 function Header({ view, setView, currentUser, onLogout, setSelectedCategory, onOpenSettings }) {
+  // PERBAIKAN: Tombol logout sekarang memanggil props onLogout (yang mengarah ke handleLogout di App)
   return (
     <nav className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -491,7 +499,7 @@ function LoginPortal({ setView, users, setCurrentUser, showNotification, db, app
     if (!foundUser) { showNotification("Username, Email, atau NIP tidak ditemukan."); return; }
     if (foundUser.password !== password) { showNotification("Kata Sandi yang dimasukkan salah."); return; }
     
-    // Perbaikan Error: Gunakan setDoc dengan merge true agar Admin Master statis juga bisa menyimpan linkedUid
+    // PERBAIKAN: Gunakan setDoc dengan merge true agar Admin Master statis juga bisa menyimpan linkedUid
     if (firebaseUser) {
       try {
         const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', foundUser.username);
@@ -938,7 +946,7 @@ function EditUserModal({ onClose, formData, setFormData, editingUser, showNotifi
           <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold uppercase" /></div>
           <div className="grid grid-cols-2 gap-4">
              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP</label><input required value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
-             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-3.5 bg-gray-100 border-none rounded-2xl outline-none font-bold text-gray-400 cursor-not-allowed" /></div>
+             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-4 bg-gray-100 border-none rounded-2xl outline-none font-bold text-gray-400 cursor-not-allowed" /></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
