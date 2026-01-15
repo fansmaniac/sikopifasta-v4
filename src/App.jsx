@@ -20,7 +20,6 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 // 1. KONFIGURASI FIREBASE & INITIAL DATA
 // ==========================================
 
-// Gunakan konfigurasi sistem jika ada, atau gunakan hardcoded sebagai cadangan
 const firebaseConfig = typeof __firebase_config !== 'undefined' 
   ? JSON.parse(__firebase_config) 
   : {
@@ -36,12 +35,9 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-
-// appId harus unik untuk identifikasi data di Firestore
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'sikopifasta-v4';
 
 const INITIAL_DATA = [
-  // DUMMY DATA KENDARAAN
   {
     id: 'v-available',
     nama: 'TOYOTA AVANZA VELOZ',
@@ -55,61 +51,6 @@ const INITIAL_DATA = [
     tglOliMesinNext: '2026-06-01',
     tglPajak: '2026-05-10',
     spek: 'Warna Hitam, Transmisi Otomatis'
-  },
-  {
-    id: 'v-borrowed-overdue',
-    nama: 'HONDA CR-V GEN 6',
-    kategori: 'Kendaraan Dinas',
-    status: 'Dipinjam',
-    peminjam: 'IR. H. AHMAD SUBAGJO',
-    tglPinjam: '2026-01-01',
-    tglKembali: '2026-01-10', 
-    noPlat: 'KB 9999 AA',
-    noRangka: 'MHF555666777',
-    noMesin: 'L15C12345',
-    kilometer: '5200',
-    spek: 'Warna Putih Mutiara'
-  },
-  {
-    id: 'v-damaged',
-    nama: 'MITSUBISHI PAJERO SPORT',
-    kategori: 'Kendaraan Dinas',
-    status: 'Rusak',
-    noPlat: 'KB 7777 BB',
-    deskripsiRusak: 'Masalah pada sistem transmisi dan kebocoran oli gardan.',
-    spek: 'Warna Silver Metallic'
-  },
-  // DUMMY DATA ELEKTRONIK
-  {
-    id: 'e-available',
-    nama: 'LAPTOP PEGAWAI',
-    merek: 'Dell Latitude 5420',
-    nup: 'LNN-2024-050',
-    kategori: 'Peralatan Elektronik',
-    status: 'Tersedia',
-    spek: 'Core i5-1145G7, 16GB RAM, 512GB SSD'
-  },
-  {
-    id: 'e-borrowed',
-    nama: 'LAPTOP DESAIN',
-    merek: 'MacBook Pro M3 Max',
-    nup: 'LNN-2025-001',
-    kategori: 'Peralatan Elektronik',
-    status: 'Dipinjam',
-    peminjam: 'SITI NURHALIZA',
-    tglPinjam: '2026-01-14',
-    tglKembali: '2026-02-14',
-    spek: 'RAM 64GB, 1TB SSD, Space Black'
-  },
-  {
-    id: 'e-damaged',
-    nama: 'PROYEKTOR EPSON',
-    merek: 'Epson EB-X05',
-    nup: 'LNN-2023-010',
-    kategori: 'Peralatan Elektronik',
-    status: 'Rusak',
-    deskripsiRusak: 'Lampu mati total (end of lamp life).',
-    spek: '3300 Lumens, HDMI'
   }
 ];
 
@@ -126,19 +67,6 @@ const INITIAL_USERS = [
     historyTerlambat: 0, 
     historyRusak: 0,
     foto: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop'
-  },
-  {
-    id: 'user-sample', 
-    nama: 'BUDI SANTOSO', 
-    nip: '199505052020011002', 
-    email: 'budi@sikopifasta.go.id', 
-    whatsapp: '085211223344', 
-    username: 'budi',
-    password: 'password123', 
-    role: 'user', 
-    historyTerlambat: 0, 
-    historyRusak: 0,
-    foto: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=400&h=400&fit=crop'
   }
 ];
 
@@ -166,7 +94,7 @@ const INITIAL_SETTINGS = {
 // ==========================================
 export default function App() {
   const [view, setView] = useState('user_dashboard'); 
-  const [data, setData] = useState(INITIAL_DATA);
+  const [data, setData] = useState([]); // Mulai dengan array kosong, ambil dari DB
   const [users, setUsers] = useState(INITIAL_USERS);
   const [appSettings, setAppSettings] = useState(INITIAL_SETTINGS);
   const [currentUser, setCurrentUser] = useState(null);
@@ -175,6 +103,7 @@ export default function App() {
   const [notification, setNotification] = useState(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
+  // AUTHENTICATION LOGIC (RULE 3)
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -183,22 +112,33 @@ export default function App() {
         } else {
           await signInAnonymously(auth);
         }
-      } catch (e) { 
-        console.error("Auth initialization failed:", e); 
-      }
+      } catch (e) { console.error("Auth initialization failed:", e); }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
     return () => unsubscribe();
   }, []);
 
+  // REAL-TIME USERS SYNC (RULE 1)
   useEffect(() => {
     if (!firebaseUser) return;
     const usersCol = collection(db, 'artifacts', appId, 'public', 'data', 'users');
     const unsubscribe = onSnapshot(usersCol, (snapshot) => {
       const usersFromDb = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-      setUsers([...INITIAL_USERS, ...usersFromDb.filter(u => u.username !== 'admin' && u.username !== 'budi')]);
+      setUsers([...INITIAL_USERS, ...usersFromDb.filter(u => u.username !== 'admin')]);
     }, (err) => console.error("Firestore Users Error:", err));
+    return () => unsubscribe();
+  }, [firebaseUser]);
+
+  // REAL-TIME ASSETS SYNC (PROSES READ CRUD)
+  useEffect(() => {
+    if (!firebaseUser) return;
+    const assetsCol = collection(db, 'artifacts', appId, 'public', 'data', 'assets');
+    const unsubscribe = onSnapshot(assetsCol, (snapshot) => {
+      const assetsFromDb = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+      // Jika database masih kosong, tampilkan INITIAL_DATA sebagai bantuan awal
+      setData(assetsFromDb.length > 0 ? assetsFromDb : INITIAL_DATA);
+    }, (err) => console.error("Firestore Assets Error:", err));
     return () => unsubscribe();
   }, [firebaseUser]);
 
@@ -212,42 +152,6 @@ export default function App() {
       if (existingScript) document.body.removeChild(existingScript);
     };
   }, []);
-
-  useEffect(() => {
-    const fetchDataFromSheet = async (url, categoryLabel, prefix) => {
-      if (!url || url.trim() === '' || typeof window.XLSX === 'undefined') return;
-      try {
-        const sheetIdMatch = url.match(/\/d\/([^/]+)/);
-        if (sheetIdMatch) {
-          const sheetId = sheetIdMatch[1];
-          const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
-          const response = await fetch(exportUrl);
-          if (!response.ok) throw new Error("Gagal akses spreadsheet");
-          const arrayBuffer = await response.arrayBuffer();
-          const workbook = window.XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
-          if (categoryLabel === 'Users') {
-            for (const item of jsonData) {
-              const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', item.username || `user-${Date.now()}`);
-              await setDoc(userRef, { ...item, nama: (item.nama || '').toUpperCase(), role: item.role || 'user', password: item.password || 'password123' }, { merge: true });
-            }
-          } else {
-            const mappedData = jsonData.map((item, index) => ({ ...item, id: item.id || `fetched-${prefix}-${index}`, kategori: categoryLabel, status: item.status || 'Tersedia' }));
-            setData(prev => [ ...prev.filter(i => i.kategori !== categoryLabel), ...mappedData ]);
-          }
-        }
-      } catch (error) { console.error(error); }
-    };
-    const timer = setTimeout(() => {
-      fetchDataFromSheet(appSettings.linkDbKendaraan, 'Kendaraan Dinas', 'v');
-      fetchDataFromSheet(appSettings.linkDbElektronik, 'Peralatan Elektronik', 'e');
-      fetchDataFromSheet(appSettings.linkDbBarangLain, 'Barang Lain', 'b');
-      fetchDataFromSheet(appSettings.linkDbUsers, 'Users', 'u');
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [appSettings]);
 
   const showNotification = (msg) => {
     setNotification(msg);
@@ -323,17 +227,19 @@ export default function App() {
         {view === 'user_dashboard' && <UserDashboard setView={setView} setSelectedCategory={setSelectedCategory} exportToExcel={() => exportToExcel()} />}
         {view === 'category_detail' && <CategoryDetail selectedCategory={selectedCategory} setView={setView} data={data} appSettings={appSettings} currentUser={currentUser} showNotification={showNotification} />}
         {view === 'login_portal' && <LoginPortal setView={setView} users={users} setCurrentUser={setCurrentUser} showNotification={showNotification} />}
-        {view === 'registration_portal' && <RegistrationPortal setView={setView} users={users} setUsers={setUsers} showNotification={showNotification} />}
+        {view === 'registration_portal' && <RegistrationPortal setView={setView} users={users} setUsers={setUsers} showNotification={showNotification} db={db} appId={appId} />}
         {view === 'admin_panel' && currentUser?.role === 'admin' && (
           <AdminPanel 
-            data={data} setData={setData} 
-            users={users} setUsers={setUsers} 
+            data={data} 
+            users={users} 
             appSettings={appSettings} setAppSettings={setAppSettings}
             adminProfile={currentUser} setAdminProfile={setCurrentUser} 
             showNotification={showNotification} setView={setView} 
             exportCategoryExcel={exportToExcel}
             onExportUsers={handleExportUsers}
             onImportUsersExcel={handleImportUsersExcel} 
+            db={db}
+            appId={appId}
           />
         )}
         {view === 'user_panel' && currentUser?.role === 'user' && (
@@ -496,7 +402,7 @@ function CategoryDetail({ selectedCategory, setView, data, appSettings, currentU
   const [statusFilter, setStatusFilter] = useState('Semua');
   const categoryData = data.filter(item => item.kategori === selectedCategory);
   const stats = { total: categoryData.length, available: categoryData.filter(i => i.status === 'Tersedia').length, borrowed: categoryData.filter(i => i.status === 'Dipinjam').length, damaged: categoryData.filter(i => i.status === 'Rusak').length };
-  const filteredItems = categoryData.filter(item => item.nama.toLowerCase().includes(searchTerm.toLowerCase()) && (statusFilter === 'Semua' ? true : item.status === statusFilter));
+  const filteredItems = categoryData.filter(item => (item.nama || "").toLowerCase().includes(searchTerm.toLowerCase()) && (statusFilter === 'Semua' ? true : item.status === statusFilter));
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-in slide-in-from-bottom-4 duration-500 text-left">
       <div className="flex items-center gap-4 mb-8">
@@ -556,7 +462,7 @@ function LoginPortal({ setView, users, setCurrentUser, showNotification }) {
   );
 }
 
-function RegistrationPortal({ setView, users, setUsers, showNotification }) {
+function RegistrationPortal({ setView, users, setUsers, showNotification, db, appId }) {
   const [formData, setFormData] = useState({ nama: '', nip: '', username: '', email: '', whatsapp: '', password: '', confirmPassword: '' });
   const [showPass, setShowPass] = useState(false);
   const handleRegister = async (e) => {
@@ -591,7 +497,7 @@ function RegistrationPortal({ setView, users, setUsers, showNotification }) {
   );
 }
 
-function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSettings, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel }) {
+function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel, db, appId }) {
   const [adminSubView, setAdminSubView] = useState('assets'); 
   const [activeAssetTab, setActiveAssetTab] = useState('Kendaraan Dinas'); 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -625,17 +531,41 @@ function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSetting
   const openDetailModal = (item) => { setSelectedDetailItem(item); setIsDetailModalOpen(true); };
   const closeDetailModal = () => { setIsDetailModalOpen(false); setSelectedDetailItem(null); };
   
-  const handleAddOrEdit = (e) => { 
+  // LOGIKA CREATE & UPDATE CRUD (RULE 1)
+  const handleAddOrEdit = async (e) => { 
     e.preventDefault(); 
-    const finalData = { ...formData, kategori: activeAssetTab }; 
-    if (editingItem) { 
-      setData(data.map(item => item.id === editingItem.id ? { ...finalData, id: item.id } : item)); 
-      showNotification("Data fasilitas berhasil diperbarui!"); 
-    } else { 
-      setData([...data, { ...finalData, id: Date.now() }]); 
-      showNotification("Data fasilitas baru berhasil ditambahkan!"); 
-    } 
-    closeModal(); 
+    const id = editingItem ? editingItem.id : `asset-${Date.now()}`;
+    const finalData = { ...formData, kategori: activeAssetTab, id: id }; 
+    
+    try {
+      const assetRef = doc(db, 'artifacts', appId, 'public', 'data', 'assets', id);
+      await setDoc(assetRef, finalData, { merge: true });
+      showNotification(editingItem ? "Data fasilitas berhasil diperbarui!" : "Data fasilitas baru berhasil ditambahkan!");
+      closeModal(); 
+    } catch (err) {
+      console.error("Firestore Save Error:", err);
+      showNotification("Gagal menyimpan ke database.");
+    }
+  };
+
+  // LOGIKA DELETE CRUD (RULE 1)
+  const handleDeleteAsset = async (itemId) => {
+    try {
+      const assetRef = doc(db, 'artifacts', appId, 'public', 'data', 'assets', itemId);
+      await deleteDoc(assetRef);
+      showNotification("Data fasilitas berhasil dihapus.");
+    } catch (err) {
+      console.error("Firestore Delete Error:", err);
+      showNotification("Gagal menghapus dari database.");
+    }
+  };
+
+  // LOGIKA DELETE USER (RULE 1)
+  const handleDeleteUser = async (u) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.username));
+      showNotification(`User ${u.nama} berhasil dihapus.`);
+    } catch (err) { showNotification("Gagal menghapus user."); }
   };
 
   return (
@@ -648,20 +578,44 @@ function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSetting
       </div>
 
       {adminSubView === 'assets' ? (
-        <AdminAssetsSection activeAssetTab={activeAssetTab} setActiveAssetTab={setActiveAssetTab} data={data} setData={setData} openModal={openModal} openDetailModal={openDetailModal} showNotification={showNotification} adminSearch={adminSearch} setAdminSearch={setAdminSearch} adminStatusFilter={adminStatusFilter} setAdminStatusFilter={setAdminStatusFilter} exportCategoryExcel={exportCategoryExcel} onImportClick={() => fileInputRef.current?.click()} appSettings={appSettings} />
+        <AdminAssetsSection activeAssetTab={activeAssetTab} setActiveAssetTab={setActiveAssetTab} data={data} openModal={openModal} openDetailModal={openDetailModal} showNotification={showNotification} adminSearch={adminSearch} setAdminSearch={setAdminSearch} adminStatusFilter={adminStatusFilter} setAdminStatusFilter={setAdminStatusFilter} exportCategoryExcel={exportCategoryExcel} onImportClick={() => fileInputRef.current?.click()} appSettings={appSettings} onDelete={handleDeleteAsset} />
       ) : adminSubView === 'users' ? (
-        <AdminUsersSection users={users} data={data} userSearch={userSearch} setUserSearch={setUserSearch} onAddClick={() => setIsAddUserModalOpen(true)} onEdit={(u) => { setEditingUser(u); setUserFormData({nama: u.nama, nip: u.nip, email: u.email, whatsapp: u.whatsapp, username: u.username, password: u.password}); setIsUserModalOpen(true); }} onReset={(u) => { showNotification(`Password ${u.nama} direset ke password123`); }} onDelete={(u) => { showNotification(`User ${u.nama} dihapus`); }} onExportUsers={onExportUsers} onImportUsers={() => userFileInputRef.current?.click()} />
+        <AdminUsersSection users={users} data={data} userSearch={userSearch} setUserSearch={setUserSearch} onAddClick={() => setIsAddUserModalOpen(true)} onEdit={(u) => { setEditingUser(u); setUserFormData({nama: u.nama, nip: u.nip, email: u.email, whatsapp: u.whatsapp, username: u.username, password: u.password}); setIsUserModalOpen(true); }} onReset={(u) => { showNotification(`Password ${u.nama} direset ke password123`); }} onDelete={handleDeleteUser} onExportUsers={onExportUsers} onImportUsers={() => userFileInputRef.current?.click()} />
       ) : adminSubView === 'profile' ? (
         <AdminProfileSection adminProfile={adminProfile} setAdminProfile={setAdminProfile} showNotification={showNotification} />
       ) : (
         <AppSettingsSection appSettings={appSettings} setAppSettings={setAppSettings} showNotification={showNotification} />
       )}
 
-      <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={(e) => { const file = e.target.files[0]; if (!file || typeof window.XLSX === 'undefined') return; const reader = new FileReader(); reader.onload = (evt) => { const wb = window.XLSX.read(evt.target.result, { type: 'binary' }); const ws = wb.Sheets[wb.SheetNames[0]]; const importedData = window.XLSX.utils.sheet_to_json(ws); const otherCategoriesData = data.filter(item => item.kategori !== activeAssetTab); const newCategoryData = importedData.map((item, idx) => ({ ...item, id: item.id || Date.now() + idx, kategori: activeAssetTab })); setData([...otherCategoriesData, ...newCategoryData]); showNotification(`Unggah data ke ${activeAssetTab} berhasil!`); e.target.value = null; }; reader.readAsBinaryString(file); }} />
+      <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={async (e) => { 
+        const file = e.target.files[0]; 
+        if (!file || typeof window.XLSX === 'undefined') return; 
+        const reader = new FileReader(); 
+        reader.onload = async (evt) => { 
+          const wb = window.XLSX.read(evt.target.result, { type: 'binary' }); 
+          const ws = wb.Sheets[wb.SheetNames[0]]; 
+          const importedData = window.XLSX.utils.sheet_to_json(ws); 
+          showNotification(`Mengunggah ${importedData.length} data ke database...`);
+          for (let item of importedData) {
+            const id = item.id || `imp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'assets', id), { ...item, id, kategori: activeAssetTab }, { merge: true });
+          }
+          showNotification(`Impor data ke ${activeAssetTab} berhasil!`); 
+          e.target.value = null; 
+        }; 
+        reader.readAsBinaryString(file); 
+      }} />
       <input type="file" ref={userFileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={onImportUsersExcel} />
       
-      {isAddUserModalOpen && <AddUserModal onSubmit={(e) => { e.preventDefault(); setIsAddUserModalOpen(false); showNotification(`Pengguna baru ${addUserFormData.nama} ditambahkan!`); }} users={users} onClose={() => setIsAddUserModalOpen(false)} formData={addUserFormData} setFormData={setAddUserFormData} />}
-      {isUserModalOpen && <EditUserModal onClose={() => setIsUserModalOpen(false)} formData={userFormData} setFormData={setUserFormData} editingUser={editingUser} showNotification={showNotification} />}
+      {isAddUserModalOpen && <AddUserModal onSubmit={async (e) => { 
+          e.preventDefault(); 
+          if (users.some(u => u.username === addUserFormData.username)) { showNotification("Username sudah digunakan!"); return; }
+          const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', addUserFormData.username);
+          await setDoc(userRef, { ...addUserFormData, role: 'user', password: 'password123', historyTerlambat: 0, historyRusak: 0 });
+          setIsAddUserModalOpen(false); 
+          showNotification(`Pengguna baru ${addUserFormData.nama} ditambahkan!`); 
+        }} users={users} onClose={() => setIsAddUserModalOpen(false)} formData={addUserFormData} setFormData={setAddUserFormData} />}
+      {isUserModalOpen && <EditUserModal onClose={() => setIsUserModalOpen(false)} formData={userFormData} setFormData={setUserFormData} editingUser={editingUser} showNotification={showNotification} db={db} appId={appId} />}
       {isModalOpen && <AssetModal activeAssetTab={activeAssetTab} editingItem={editingItem} formData={formData} setFormData={setFormData} closeModal={closeModal} handleAddOrEdit={handleAddOrEdit} />}
       {isDetailModalOpen && <AssetDetailModal selectedDetailItem={selectedDetailItem} closeDetailModal={closeDetailModal} />}
     </div>
@@ -670,13 +624,13 @@ function AdminPanel({ data, setData, users, setUsers, appSettings, setAppSetting
 
 // ============= SUB COMPONENT DEFINITIONS =============
 
-function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, setData, openModal, openDetailModal, showNotification, adminSearch, setAdminSearch, adminStatusFilter, setAdminStatusFilter, exportCategoryExcel, onImportClick, appSettings }) {
+function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, openModal, openDetailModal, showNotification, adminSearch, setAdminSearch, adminStatusFilter, setAdminStatusFilter, exportCategoryExcel, onImportClick, appSettings, onDelete }) {
   const categoryData = data.filter(item => item.kategori === activeAssetTab);
   const stats = { total: categoryData.length, available: categoryData.filter(i => i.status === 'Tersedia').length, borrowed: categoryData.filter(i => i.status === 'Dipinjam').length, damaged: categoryData.filter(i => i.status === 'Rusak').length };
   
   const filteredAndSortedData = categoryData.filter(item => {
     const searchString = adminSearch.toLowerCase();
-    const matchSearch = item.nama.toLowerCase().includes(searchString) || (item.noPlat && item.noPlat.toLowerCase().includes(searchString)) || (item.nup && item.nup.toLowerCase().includes(searchString)) || (item.merek && item.merek.toLowerCase().includes(searchString)) || (item.peminjam && item.peminjam.toLowerCase().includes(searchString));
+    const matchSearch = (item.nama || "").toLowerCase().includes(searchString) || (item.noPlat && item.noPlat.toLowerCase().includes(searchString)) || (item.nup && item.nup.toLowerCase().includes(searchString)) || (item.merek && item.merek.toLowerCase().includes(searchString)) || (item.peminjam && item.peminjam.toLowerCase().includes(searchString));
     const matchStatus = adminStatusFilter === 'Semua' ? true : item.status === adminStatusFilter;
     return matchSearch && matchStatus;
   }).sort((a, b) => {
@@ -743,7 +697,7 @@ function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, setData, 
                     <td className="px-6 py-4 text-right flex justify-end gap-2">
                       <button onClick={() => openDetailModal(item)} className="p-2 text-indigo-400 hover:bg-indigo-50 rounded-lg"><FileText size={18}/></button>
                       <button onClick={() => openModal(item)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"><Edit size={18}/></button>
-                      <button onClick={() => setData(prev => prev.filter(i => i.id !== item.id))} className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={18}/></button>
+                      <button onClick={() => onDelete(item.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={18}/></button>
                     </td>
                   </tr>
                 );
@@ -757,12 +711,12 @@ function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, setData, 
 }
 
 function AdminUsersSection({ users, data, userSearch, setUserSearch, onAddClick, onEdit, onReset, onDelete, onExportUsers, onImportUsers }) {
-  const filteredUsers = users.filter(u => u.nama.toLowerCase().includes(userSearch.toLowerCase()) || u.username.toLowerCase().includes(userSearch.toLowerCase()) || u.nip.includes(userSearch));
+  const filteredUsers = users.filter(u => (u.nama || "").toLowerCase().includes(userSearch.toLowerCase()) || (u.username || "").toLowerCase().includes(userSearch.toLowerCase()) || (u.nip || "").includes(userSearch));
   
   return (
     <div className="animate-in fade-in text-left">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-        <div><h2 className="text-2xl font-black text-gray-900 mb-1 uppercase tracking-tight">Manajemen Pengguna</h2><p className="text-gray-400 text-sm font-medium italic">Total: <span className="text-indigo-600 font-bold">{users.length} Pegawai</span></p></div>
+        <div><h2 className="text-2xl font-black text-gray-900 mb-1 uppercase tracking-tight">Manajemen Pengguna</h2><p className="text-gray-500 text-sm font-medium italic">Total: <span className="text-indigo-600 font-bold">{users.length} Pegawai</span></p></div>
         <div className="flex flex-wrap gap-3">
           <button onClick={onImportUsers} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-700 border border-emerald-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all text-xs uppercase tracking-widest"><Upload size={18} /> Restore</button>
           <button onClick={onExportUsers} className="flex-1 sm:flex-none bg-blue-50 text-blue-700 border border-blue-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all text-xs uppercase tracking-widest"><Database size={18} /> Backup</button>
@@ -892,11 +846,15 @@ function AppSettingsSection({ appSettings, setAppSettings, showNotification }) {
   );
 }
 
-function EditUserModal({ onClose, formData, setFormData, editingUser, showNotification }) {
-  const handleUpdate = (e) => {
+function EditUserModal({ onClose, formData, setFormData, editingUser, showNotification, db, appId }) {
+  const handleUpdate = async (e) => {
     e.preventDefault();
-    onClose();
-    showNotification(`Data ${formData.nama} berhasil diperbarui!`);
+    try {
+      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUser.username);
+      await setDoc(userRef, { ...editingUser, ...formData, nama: formData.nama.toUpperCase() }, { merge: true });
+      showNotification(`Data ${formData.nama} berhasil diperbarui!`);
+      onClose();
+    } catch (e) { showNotification("Gagal memperbarui user."); }
   };
 
   return (
@@ -961,6 +919,7 @@ function AssetModal({ activeAssetTab, editingItem, formData, setFormData, closeM
               <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Nama {isVehicle ? 'Kendaraan' : isElectronic ? 'Alat' : 'Barang'}</label>
               {isElectronic ? (
                 <select value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value})} className="w-full px-4 py-4 bg-gray-50 rounded-2xl outline-none font-bold">
+                  <option value="">-- Pilih --</option>
                   {ELEKTRONIK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                 </select>
               ) : (
@@ -1003,7 +962,6 @@ function AssetModal({ activeAssetTab, editingItem, formData, setFormData, closeM
                 <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">No. Rangka</label><input value={formData.noRangka || ''} onChange={e => setFormData({...formData, noRangka: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold text-xs" /></div>
                 <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">No. Mesin</label><input value={formData.noMesin || ''} onChange={e => setFormData({...formData, noMesin: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold text-xs" /></div>
               </div>
-              {/* Tambahan Bidang Tanggal Baru */}
               <div className="p-6 bg-indigo-50/50 rounded-3xl space-y-4 border border-indigo-100">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2"><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Tanggal Ganti Oli Mesin</label><input type="date" value={formData.tglOliMesin || ''} onChange={e => setFormData({...formData, tglOliMesin: e.target.value})} className="w-full px-4 py-3 bg-white rounded-xl outline-none font-bold text-xs border border-indigo-100" /></div>
@@ -1066,11 +1024,11 @@ function AssetDetailModal({ selectedDetailItem, closeDetailModal }) {
                     <div className="flex justify-between"><span>No. Rangka:</span><span className="font-bold font-mono text-[10px]">{selectedDetailItem.noRangka || '-'}</span></div>
                     <div className="flex justify-between"><span>No. Mesin:</span><span className="font-bold font-mono text-[10px]">{selectedDetailItem.noMesin || '-'}</span></div>
                     <div className="flex justify-between"><span>Kilometer:</span><span className="font-bold text-indigo-600">{selectedDetailItem.kilometer || '0'} KM</span></div>
-                    <div className="flex justify-between border-t pt-2 mt-2"><span>Tgl Ganti Oli Mesin:</span><span className="font-bold">{selectedDetailItem.tglOliMesin || '-'}</span></div>
-                    <div className="flex justify-between text-indigo-600"><span>Oli Mesin Berikutnya:</span><span className="font-bold">{selectedDetailItem.tglOliMesinNext || '-'}</span></div>
-                    <div className="flex justify-between border-t pt-2"><span>Tgl Oli Perseneling:</span><span className="font-bold">{selectedDetailItem.tglOliPerseneling || '-'}</span></div>
-                    <div className="flex justify-between text-indigo-600"><span>Oli Perseneling Berikutnya:</span><span className="font-bold">{selectedDetailItem.tglOliPersenelingNext || '-'}</span></div>
-                    <div className="flex justify-between border-t pt-2 text-amber-600"><span>Bayar Pajak Berikutnya:</span><span className="font-bold">{selectedDetailItem.tglPajak || '-'}</span></div>
+                    <div className="flex justify-between border-t pt-2 mt-2 text-[10px]"><span>Tgl Oli Mesin:</span><span className="font-bold">{selectedDetailItem.tglOliMesin || '-'}</span></div>
+                    <div className="flex justify-between text-indigo-600 text-[10px]"><span>Oli Mesin Next:</span><span className="font-bold">{selectedDetailItem.tglOliMesinNext || '-'}</span></div>
+                    <div className="flex justify-between border-t pt-2 text-[10px]"><span>Tgl Oli Perseneling:</span><span className="font-bold">{selectedDetailItem.tglOliPerseneling || '-'}</span></div>
+                    <div className="flex justify-between text-indigo-600 text-[10px]"><span>Oli Perseneling Next:</span><span className="font-bold">{selectedDetailItem.tglOliPersenelingNext || '-'}</span></div>
+                    <div className="flex justify-between border-t pt-2 text-amber-600 text-[10px]"><span>Bayar Pajak Next:</span><span className="font-bold">{selectedDetailItem.tglPajak || '-'}</span></div>
                   </>
                 ) : (
                   <>
