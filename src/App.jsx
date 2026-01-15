@@ -37,10 +37,6 @@ const firebaseConfig = {
   measurementId: "G-BYYMCR49V8"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
 const appId = 'sikopifasta-v4';
 
 const INITIAL_DATA = [
