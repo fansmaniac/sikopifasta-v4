@@ -453,7 +453,7 @@ function Footer() {
     <footer className="py-12 bg-white border-t border-gray-100 mt-auto">
       <div className="max-w-6xl mx-auto px-4 flex flex-col items-center">
         <div className="flex items-center gap-2 mb-4 text-gray-300"><ShieldCheck size={16} /><span className="font-black tracking-[0.2em] text-[10px] uppercase italic">SIKOPIFASTA Enterprise v4.5</span></div>
-        <p className="text-gray-400 text-sm font-bold text-center italic leading-relaxed">"Sistem Kontrol Pinjam Fasilitas dan Inventaris Terpadu" <br/>Dikembangkan untuk efisiensi operasional internal kantor.</p>
+        <p className="text-gray-400 text-sm font-bold text-center italic leading-relaxed">"Sistem Kontrol Pinjam Fasilitas dan Inventaris Terpadu" <br/>Dikembangkan untuk efisiensi operasional internal BPMP Provinsi Kalbar.</p>
       </div>
     </footer>
   );
@@ -476,7 +476,7 @@ function UserDashboard({ setView, setSelectedCategory, exportToExcel }) {
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-in fade-in duration-500">
       <div className="text-center mb-12">
         <h1 className="text-3xl sm:text-4xl font-black text-gray-900 mb-4 tracking-tight uppercase">SIKOPIFASTA</h1>
-        <p className="text-gray-500 max-w-2xl mx-auto text-lg italic font-medium leading-relaxed">"Sistem Kontrol Pinjam Fasilitas dan Inventaris" <br/><span className="text-sm not-italic font-normal opacity-70">Kelola peminjaman sarana prasarana kantor lebih transparan.</span></p>
+        <p className="text-gray-500 max-w-2xl mx-auto text-lg italic font-medium leading-relaxed">"Sistem Kontrol Pinjam Fasilitas dan Inventaris" <br/><span className="text-sm not-italic font-normal opacity-70">Kelola peminjaman Barang Milik Negara BPMP Provinsi Kalbar</span></p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {CATEGORIES.map((cat) => (
