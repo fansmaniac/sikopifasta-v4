@@ -12,9 +12,9 @@ import {
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, collection, onSnapshot, doc, 
-  setDoc, deleteDoc, addDoc, query 
+  setDoc, deleteDoc, addDoc, query, updateDoc
 } from 'firebase/firestore';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
 
 // ==========================================
 // 1. KONFIGURASI FIREBASE & INITIAL DATA
@@ -94,7 +94,7 @@ const INITIAL_SETTINGS = {
 // ==========================================
 export default function App() {
   const [view, setView] = useState('user_dashboard'); 
-  const [data, setData] = useState([]); // Mulai dengan array kosong, ambil dari DB
+  const [data, setData] = useState([]); 
   const [users, setUsers] = useState(INITIAL_USERS);
   const [appSettings, setAppSettings] = useState(INITIAL_SETTINGS);
   const [currentUser, setCurrentUser] = useState(null);
@@ -102,6 +102,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [notification, setNotification] = useState(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
   // AUTHENTICATION LOGIC (RULE 3)
   useEffect(() => {
@@ -112,7 +113,11 @@ export default function App() {
         } else {
           await signInAnonymously(auth);
         }
-      } catch (e) { console.error("Auth initialization failed:", e); }
+      } catch (e) { 
+        console.error("Auth initialization failed:", e); 
+      } finally {
+        setIsLoadingAuth(false);
+      }
     };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
@@ -130,13 +135,30 @@ export default function App() {
     return () => unsubscribe();
   }, [firebaseUser]);
 
-  // REAL-TIME ASSETS SYNC (PROSES READ CRUD)
+  // SESSION RESTORATION LOGIC (Memulihkan login setelah refresh)
+  useEffect(() => {
+    if (!firebaseUser || currentUser || users.length <= INITIAL_USERS.length) return;
+
+    // Cari user yang memiliki linkedUid yang sama dengan Firebase UID saat ini
+    const savedUser = users.find(u => u.linkedUid === firebaseUser.uid);
+    if (savedUser) {
+      setCurrentUser(savedUser);
+      // Jika admin, arahkan ke panel admin, jika user ke panel user
+      if (savedUser.role === 'admin') {
+        setView('admin_panel');
+      } else {
+        setView('user_panel');
+      }
+      showNotification(`Sesi dipulihkan: Selamat datang kembali, ${savedUser.nama}`);
+    }
+  }, [firebaseUser, users, currentUser]);
+
+  // REAL-TIME ASSETS SYNC
   useEffect(() => {
     if (!firebaseUser) return;
     const assetsCol = collection(db, 'artifacts', appId, 'public', 'data', 'assets');
     const unsubscribe = onSnapshot(assetsCol, (snapshot) => {
       const assetsFromDb = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-      // Jika database masih kosong, tampilkan INITIAL_DATA sebagai bantuan awal
       setData(assetsFromDb.length > 0 ? assetsFromDb : INITIAL_DATA);
     }, (err) => console.error("Firestore Assets Error:", err));
     return () => unsubscribe();
@@ -155,10 +177,18 @@ export default function App() {
 
   const showNotification = (msg) => {
     setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), 4000);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Hapus linkedUid di database sebelum logout agar sesi benar-benar berakhir
+    if (currentUser && firebaseUser) {
+      try {
+        const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.username);
+        await updateDoc(userRef, { linkedUid: null });
+      } catch (e) { console.error("Logout update failed", e); }
+    }
+    
     setCurrentUser(null);
     setView('user_dashboard');
     showNotification("Berhasil keluar sistem.");
@@ -224,31 +254,41 @@ export default function App() {
       <Header view={view} setView={setView} currentUser={currentUser} onLogout={handleLogout} setSelectedCategory={setSelectedCategory} onOpenSettings={() => setIsProfileModalOpen(true)} />
       
       <main className="pb-20 flex-grow">
-        {view === 'user_dashboard' && <UserDashboard setView={setView} setSelectedCategory={setSelectedCategory} exportToExcel={() => exportToExcel()} />}
-        {view === 'category_detail' && <CategoryDetail selectedCategory={selectedCategory} setView={setView} data={data} appSettings={appSettings} currentUser={currentUser} showNotification={showNotification} />}
-        {view === 'login_portal' && <LoginPortal setView={setView} users={users} setCurrentUser={setCurrentUser} showNotification={showNotification} />}
-        {view === 'registration_portal' && <RegistrationPortal setView={setView} users={users} setUsers={setUsers} showNotification={showNotification} db={db} appId={appId} />}
-        {view === 'admin_panel' && currentUser?.role === 'admin' && (
-          <AdminPanel 
-            data={data} 
-            users={users} 
-            appSettings={appSettings} setAppSettings={setAppSettings}
-            adminProfile={currentUser} setAdminProfile={setCurrentUser} 
-            showNotification={showNotification} setView={setView} 
-            exportCategoryExcel={exportToExcel}
-            onExportUsers={handleExportUsers}
-            onImportUsersExcel={handleImportUsersExcel} 
-            db={db}
-            appId={appId}
-          />
-        )}
-        {view === 'user_panel' && currentUser?.role === 'user' && (
-          <div className="max-w-6xl mx-auto p-8 text-center mt-20 animate-in">
-             <UserCircle size={80} className="mx-auto text-indigo-600 mb-4" />
-             <h2 className="text-3xl font-black uppercase tracking-tight">Selamat Datang, {currentUser.nama}</h2>
-             <p className="text-gray-500 mt-2 font-medium italic uppercase tracking-widest text-xs">Akun Pegawai Kantor Terverifikasi</p>
-             <button onClick={() => setView('user_dashboard')} className="mt-8 bg-indigo-600 text-white px-10 py-4 rounded-[2rem] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-xl transition-all active:scale-95 shadow-indigo-100">Jelajahi Fasilitas</button>
+        {isLoadingAuth ? (
+          <div className="flex flex-col items-center justify-center min-h-[60vh]">
+            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="mt-4 font-bold text-gray-400 animate-pulse uppercase tracking-widest text-xs">Menghubungkan ke Database...</p>
           </div>
+        ) : (
+          <>
+            {view === 'user_dashboard' && <UserDashboard setView={setView} setSelectedCategory={setSelectedCategory} exportToExcel={() => exportToExcel()} />}
+            {view === 'category_detail' && <CategoryDetail selectedCategory={selectedCategory} setView={setView} data={data} appSettings={appSettings} currentUser={currentUser} showNotification={showNotification} />}
+            {view === 'login_portal' && <LoginPortal setView={setView} users={users} setCurrentUser={setCurrentUser} showNotification={showNotification} db={db} appId={appId} firebaseUser={firebaseUser} />}
+            {view === 'registration_portal' && <RegistrationPortal setView={setView} users={users} setUsers={setUsers} showNotification={showNotification} db={db} appId={appId} />}
+            {view === 'admin_panel' && currentUser?.role === 'admin' && (
+              <AdminPanel 
+                data={data} 
+                users={users} 
+                appSettings={appSettings} setAppSettings={setAppSettings}
+                adminProfile={currentUser} setAdminProfile={setCurrentUser} 
+                showNotification={showNotification} setView={setView} 
+                exportCategoryExcel={exportToExcel}
+                onExportUsers={handleExportUsers}
+                onImportUsersExcel={handleImportUsersExcel} 
+                db={db}
+                appId={appId}
+                firebaseUser={firebaseUser}
+              />
+            )}
+            {view === 'user_panel' && currentUser?.role === 'user' && (
+              <div className="max-w-6xl mx-auto p-8 text-center mt-20 animate-in">
+                 <UserCircle size={80} className="mx-auto text-indigo-600 mb-4" />
+                 <h2 className="text-3xl font-black uppercase tracking-tight">Selamat Datang, {currentUser.nama}</h2>
+                 <p className="text-gray-500 mt-2 font-medium italic uppercase tracking-widest text-xs">Akun Pegawai Kantor Terverifikasi</p>
+                 <button onClick={() => setView('user_dashboard')} className="mt-8 bg-indigo-600 text-white px-10 py-4 rounded-[2rem] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-xl transition-all active:scale-95 shadow-indigo-100">Jelajahi Fasilitas</button>
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -308,7 +348,10 @@ function UserProfileModal({ currentUser, setCurrentUser, onClose, showNotificati
       setCurrentUser(updatedData);
       showNotification("Profil berhasil diperbarui!");
       onClose();
-    } catch (err) { showNotification("Gagal memperbarui profil."); }
+    } catch (err) { 
+      console.error(err);
+      showNotification("Gagal memperbarui profil: " + err.message); 
+    }
   };
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
@@ -339,7 +382,7 @@ function Header({ view, setView, currentUser, onLogout, setSelectedCategory, onO
              <div className="hidden sm:flex flex-col items-end mr-1 text-right"><span className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">{currentUser.role === 'admin' ? 'Administrator' : 'Pegawai'}</span><span className="text-xs font-bold text-gray-900 leading-none">{currentUser.nama}</span></div>
              <div className="w-10 h-10 rounded-full border-2 border-indigo-100 bg-indigo-50 flex items-center justify-center text-indigo-600 overflow-hidden shadow-inner shrink-0">{currentUser.foto ? <img src={currentUser.foto} alt="P" className="w-full h-full object-cover" /> : <UserCircle size={24} />}</div>
              <button onClick={onOpenSettings} className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Pengaturan Profil"><Settings size={20} /></button>
-             <button onClick={onLogout} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="Keluar"><LogOut size={20} /></button>
+             <button onClick={handleLogout} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="Keluar"><LogOut size={20} /></button>
           </div>
         ) : (
           <button onClick={() => setView('login_portal')} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg active:scale-95 shadow-indigo-100"><LogIn size={18} /><span className="text-sm">Login</span></button>
@@ -362,10 +405,12 @@ function Footer() {
 
 function Notification({ message }) {
   const msgStr = String(message || "");
+  const isError = msgStr.toLowerCase().includes('gagal') || msgStr.toLowerCase().includes('error') || msgStr.toLowerCase().includes('periksa');
+  
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] animate-in slide-in-from-bottom-10">
-      <div className="bg-gray-900/95 backdrop-blur-md text-white px-8 py-4 rounded-[2rem] shadow-2xl flex items-center gap-4 border border-white/10 min-w-[320px]">
-        {msgStr.toLowerCase().includes('berhasil') || msgStr.toLowerCase().includes('selamat') ? <CheckCircle2 className="text-emerald-400" /> : <AlertCircle className="text-amber-400" />}
+      <div className={`backdrop-blur-md text-white px-8 py-4 rounded-[2rem] shadow-2xl flex items-center gap-4 border border-white/10 min-w-[320px] ${isError ? 'bg-red-600/95' : 'bg-gray-900/95'}`}>
+        {isError ? <AlertCircle className="text-white" /> : (msgStr.toLowerCase().includes('berhasil') || msgStr.toLowerCase().includes('selamat') ? <CheckCircle2 className="text-emerald-400" /> : <Info className="text-amber-400" />)}
         <span className="font-bold text-sm tracking-tight text-center">{msgStr}</span>
       </div>
     </div>
@@ -434,18 +479,30 @@ function CategoryDetail({ selectedCategory, setView, data, appSettings, currentU
   );
 }
 
-function LoginPortal({ setView, users, setCurrentUser, showNotification }) {
+function LoginPortal({ setView, users, setCurrentUser, showNotification, db, appId, firebaseUser }) {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
-  const handleSubmit = (e) => {
+  
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const foundUser = users.find(u => u.username === identifier || u.email === identifier || u.nip === identifier);
+    
     if (!foundUser) { showNotification("Username, Email, atau NIP tidak ditemukan."); return; }
     if (foundUser.password !== password) { showNotification("Kata Sandi yang dimasukkan salah."); return; }
+    
+    // Simpan UID Firebase ke profil user di database agar sesi bisa dipulihkan setelah refresh
+    if (firebaseUser) {
+      try {
+        const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', foundUser.username);
+        await updateDoc(userRef, { linkedUid: firebaseUser.uid });
+      } catch (e) { console.error("Session linking failed", e); }
+    }
+
     setCurrentUser(foundUser);
     if (foundUser.role === 'admin') setView('admin_panel'); else setView('user_panel');
     showNotification(`Selamat datang kembali, ${foundUser.nama}!`);
   };
+
   return (
     <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4 bg-slate-50">
       <div className="bg-white p-10 rounded-[3.5rem] shadow-2xl max-w-md w-full border border-white animate-in zoom-in-95">
@@ -478,7 +535,10 @@ function RegistrationPortal({ setView, users, setUsers, showNotification, db, ap
       await setDoc(userRef, newUser);
       showNotification("Selamat! Registrasi Berhasil. Silakan Login.");
       setView('login_portal');
-    } catch (err) { showNotification("Gagal registrasi. Coba lagi nanti."); }
+    } catch (err) { 
+      console.error(err);
+      showNotification("Gagal registrasi: " + err.message); 
+    }
   };
   return (
     <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4 bg-slate-50">
@@ -497,7 +557,7 @@ function RegistrationPortal({ setView, users, setUsers, showNotification, db, ap
   );
 }
 
-function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel, db, appId }) {
+function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel, db, appId, firebaseUser }) {
   const [adminSubView, setAdminSubView] = useState('assets'); 
   const [activeAssetTab, setActiveAssetTab] = useState('Kendaraan Dinas'); 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -531,9 +591,15 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
   const openDetailModal = (item) => { setSelectedDetailItem(item); setIsDetailModalOpen(true); };
   const closeDetailModal = () => { setIsDetailModalOpen(false); setSelectedDetailItem(null); };
   
-  // LOGIKA CREATE & UPDATE CRUD (RULE 1)
+  // LOGIKA CREATE & UPDATE CRUD (MANDATORY RULE 1 & 3)
   const handleAddOrEdit = async (e) => { 
     e.preventDefault(); 
+    
+    if (!firebaseUser) {
+      showNotification("Gagal: Anda belum terautentikasi ke database.");
+      return;
+    }
+
     const id = editingItem ? editingItem.id : `asset-${Date.now()}`;
     const finalData = { ...formData, kategori: activeAssetTab, id: id }; 
     
@@ -544,28 +610,32 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
       closeModal(); 
     } catch (err) {
       console.error("Firestore Save Error:", err);
-      showNotification("Gagal menyimpan ke database.");
+      showNotification("Gagal menyimpan ke database: " + err.message);
     }
   };
 
-  // LOGIKA DELETE CRUD (RULE 1)
+  // LOGIKA DELETE CRUD
   const handleDeleteAsset = async (itemId) => {
+    if (!firebaseUser) return;
     try {
       const assetRef = doc(db, 'artifacts', appId, 'public', 'data', 'assets', itemId);
       await deleteDoc(assetRef);
       showNotification("Data fasilitas berhasil dihapus.");
     } catch (err) {
       console.error("Firestore Delete Error:", err);
-      showNotification("Gagal menghapus dari database.");
+      showNotification("Gagal menghapus: " + err.message);
     }
   };
 
-  // LOGIKA DELETE USER (RULE 1)
+  // LOGIKA DELETE USER
   const handleDeleteUser = async (u) => {
+    if (!firebaseUser) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.username));
       showNotification(`User ${u.nama} berhasil dihapus.`);
-    } catch (err) { showNotification("Gagal menghapus user."); }
+    } catch (err) { 
+      showNotification("Gagal menghapus user: " + err.message); 
+    }
   };
 
   return (
@@ -596,11 +666,15 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
           const ws = wb.Sheets[wb.SheetNames[0]]; 
           const importedData = window.XLSX.utils.sheet_to_json(ws); 
           showNotification(`Mengunggah ${importedData.length} data ke database...`);
-          for (let item of importedData) {
-            const id = item.id || `imp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'assets', id), { ...item, id, kategori: activeAssetTab }, { merge: true });
+          try {
+            for (let item of importedData) {
+              const id = item.id || `imp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+              await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'assets', id), { ...item, id, kategori: activeAssetTab }, { merge: true });
+            }
+            showNotification(`Impor data ke ${activeAssetTab} berhasil!`); 
+          } catch (err) {
+            showNotification("Gagal impor: " + err.message);
           }
-          showNotification(`Impor data ke ${activeAssetTab} berhasil!`); 
           e.target.value = null; 
         }; 
         reader.readAsBinaryString(file); 
@@ -609,11 +683,16 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
       
       {isAddUserModalOpen && <AddUserModal onSubmit={async (e) => { 
           e.preventDefault(); 
+          if (!firebaseUser) return;
           if (users.some(u => u.username === addUserFormData.username)) { showNotification("Username sudah digunakan!"); return; }
-          const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', addUserFormData.username);
-          await setDoc(userRef, { ...addUserFormData, role: 'user', password: 'password123', historyTerlambat: 0, historyRusak: 0 });
-          setIsAddUserModalOpen(false); 
-          showNotification(`Pengguna baru ${addUserFormData.nama} ditambahkan!`); 
+          try {
+            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', addUserFormData.username);
+            await setDoc(userRef, { ...addUserFormData, role: 'user', password: 'password123', historyTerlambat: 0, historyRusak: 0 });
+            setIsAddUserModalOpen(false); 
+            showNotification(`Pengguna baru ${addUserFormData.nama} ditambahkan!`); 
+          } catch (err) {
+            showNotification("Gagal tambah user: " + err.message);
+          }
         }} users={users} onClose={() => setIsAddUserModalOpen(false)} formData={addUserFormData} setFormData={setAddUserFormData} />}
       {isUserModalOpen && <EditUserModal onClose={() => setIsUserModalOpen(false)} formData={userFormData} setFormData={setUserFormData} editingUser={editingUser} showNotification={showNotification} db={db} appId={appId} />}
       {isModalOpen && <AssetModal activeAssetTab={activeAssetTab} editingItem={editingItem} formData={formData} setFormData={setFormData} closeModal={closeModal} handleAddOrEdit={handleAddOrEdit} />}
@@ -716,7 +795,7 @@ function AdminUsersSection({ users, data, userSearch, setUserSearch, onAddClick,
   return (
     <div className="animate-in fade-in text-left">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-        <div><h2 className="text-2xl font-black text-gray-900 mb-1 uppercase tracking-tight">Manajemen Pengguna</h2><p className="text-gray-500 text-sm font-medium italic">Total: <span className="text-indigo-600 font-bold">{users.length} Pegawai</span></p></div>
+        <div><h2 className="text-2xl font-black text-gray-900 mb-1 uppercase tracking-tight">Manajemen Pengguna</h2><p className="text-gray-400 text-sm font-medium italic">Total: <span className="text-indigo-600 font-bold">{users.length} Pegawai</span></p></div>
         <div className="flex flex-wrap gap-3">
           <button onClick={onImportUsers} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-700 border border-emerald-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all text-xs uppercase tracking-widest"><Upload size={18} /> Restore</button>
           <button onClick={onExportUsers} className="flex-1 sm:flex-none bg-blue-50 text-blue-700 border border-blue-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all text-xs uppercase tracking-widest"><Database size={18} /> Backup</button>
@@ -759,7 +838,7 @@ function AdminUsersSection({ users, data, userSearch, setUserSearch, onAddClick,
                   <td className="px-6 py-4 text-right flex justify-end gap-2">
                     <button onClick={() => onReset(u)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg" title="Reset Password"><RotateCcw size={18}/></button>
                     <button onClick={() => onEdit(u)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg" title="Edit Profil"><Edit size={18}/></button>
-                    <button onClick={() => onDelete(u)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg" title="Hapus User"><Trash2 size={18}/></button>
+                    <button onClick={() => onDelete(u.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg" title="Hapus User"><Trash2 size={18}/></button>
                   </td>
                 </tr>
               ))}
@@ -854,7 +933,9 @@ function EditUserModal({ onClose, formData, setFormData, editingUser, showNotifi
       await setDoc(userRef, { ...editingUser, ...formData, nama: formData.nama.toUpperCase() }, { merge: true });
       showNotification(`Data ${formData.nama} berhasil diperbarui!`);
       onClose();
-    } catch (e) { showNotification("Gagal memperbarui user."); }
+    } catch (e) { 
+      showNotification("Gagal memperbarui user: " + e.message); 
+    }
   };
 
   return (
