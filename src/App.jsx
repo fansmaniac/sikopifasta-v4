@@ -104,7 +104,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  // AUTHENTICATION LOGIC (RULE 3)
+  // AUTHENTICATION LOGIC (MANDATORY RULE 3)
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -124,34 +124,34 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // REAL-TIME USERS SYNC (RULE 1)
+  // REAL-TIME USERS SYNC (MANDATORY RULE 1)
   useEffect(() => {
     if (!firebaseUser) return;
     const usersCol = collection(db, 'artifacts', appId, 'public', 'data', 'users');
     const unsubscribe = onSnapshot(usersCol, (snapshot) => {
       const usersFromDb = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+      // Gabungkan Admin Master statis dengan user dari DB
       setUsers([...INITIAL_USERS, ...usersFromDb.filter(u => u.username !== 'admin')]);
     }, (err) => console.error("Firestore Users Error:", err));
     return () => unsubscribe();
   }, [firebaseUser]);
 
-  // SESSION RESTORATION LOGIC (Memulihkan login setelah refresh)
+  // SESSION RESTORATION LOGIC (MEMASTIKAN LOGIN TIDAK HILANG SAAT REFRESH)
   useEffect(() => {
-    if (!firebaseUser || currentUser || users.length <= INITIAL_USERS.length) return;
+    if (!firebaseUser || currentUser || isLoadingAuth) return;
 
-    // Cari user yang memiliki linkedUid yang sama dengan Firebase UID saat ini
+    // Tunggu sampai data users dari Firebase masuk
     const savedUser = users.find(u => u.linkedUid === firebaseUser.uid);
     if (savedUser) {
       setCurrentUser(savedUser);
-      // Jika admin, arahkan ke panel admin, jika user ke panel user
       if (savedUser.role === 'admin') {
         setView('admin_panel');
       } else {
         setView('user_panel');
       }
-      showNotification(`Sesi dipulihkan: Selamat datang kembali, ${savedUser.nama}`);
+      showNotification(`Sesi dipulihkan: ${savedUser.nama}`);
     }
-  }, [firebaseUser, users, currentUser]);
+  }, [firebaseUser, users, currentUser, isLoadingAuth]);
 
   // REAL-TIME ASSETS SYNC
   useEffect(() => {
@@ -176,16 +176,18 @@ export default function App() {
   }, []);
 
   const showNotification = (msg) => {
-    setNotification(msg);
+    // Pastikan msg adalah string untuk mencegah error React Child
+    const messageText = typeof msg === 'string' ? msg : (msg?.message || "Terjadi kesalahan sistem.");
+    setNotification(messageText);
     setTimeout(() => setNotification(null), 4000);
   };
 
   const handleLogout = async () => {
-    // Hapus linkedUid di database sebelum logout agar sesi benar-benar berakhir
     if (currentUser && firebaseUser) {
       try {
         const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', currentUser.username);
-        await updateDoc(userRef, { linkedUid: null });
+        // Gunakan setDoc merge agar tidak error jika dokumen belum ada di DB
+        await setDoc(userRef, { linkedUid: null }, { merge: true });
       } catch (e) { console.error("Logout update failed", e); }
     }
     
@@ -349,8 +351,7 @@ function UserProfileModal({ currentUser, setCurrentUser, onClose, showNotificati
       showNotification("Profil berhasil diperbarui!");
       onClose();
     } catch (err) { 
-      console.error(err);
-      showNotification("Gagal memperbarui profil: " + err.message); 
+      showNotification(err); 
     }
   };
   return (
@@ -382,7 +383,7 @@ function Header({ view, setView, currentUser, onLogout, setSelectedCategory, onO
              <div className="hidden sm:flex flex-col items-end mr-1 text-right"><span className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">{currentUser.role === 'admin' ? 'Administrator' : 'Pegawai'}</span><span className="text-xs font-bold text-gray-900 leading-none">{currentUser.nama}</span></div>
              <div className="w-10 h-10 rounded-full border-2 border-indigo-100 bg-indigo-50 flex items-center justify-center text-indigo-600 overflow-hidden shadow-inner shrink-0">{currentUser.foto ? <img src={currentUser.foto} alt="P" className="w-full h-full object-cover" /> : <UserCircle size={24} />}</div>
              <button onClick={onOpenSettings} className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Pengaturan Profil"><Settings size={20} /></button>
-             <button onClick={handleLogout} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="Keluar"><LogOut size={20} /></button>
+             <button onClick={onLogout} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="Keluar"><LogOut size={20} /></button>
           </div>
         ) : (
           <button onClick={() => setView('login_portal')} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg active:scale-95 shadow-indigo-100"><LogIn size={18} /><span className="text-sm">Login</span></button>
@@ -490,11 +491,11 @@ function LoginPortal({ setView, users, setCurrentUser, showNotification, db, app
     if (!foundUser) { showNotification("Username, Email, atau NIP tidak ditemukan."); return; }
     if (foundUser.password !== password) { showNotification("Kata Sandi yang dimasukkan salah."); return; }
     
-    // Simpan UID Firebase ke profil user di database agar sesi bisa dipulihkan setelah refresh
+    // Perbaikan Error: Gunakan setDoc dengan merge true agar Admin Master statis juga bisa menyimpan linkedUid
     if (firebaseUser) {
       try {
         const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', foundUser.username);
-        await updateDoc(userRef, { linkedUid: firebaseUser.uid });
+        await setDoc(userRef, { ...foundUser, linkedUid: firebaseUser.uid }, { merge: true });
       } catch (e) { console.error("Session linking failed", e); }
     }
 
@@ -536,8 +537,7 @@ function RegistrationPortal({ setView, users, setUsers, showNotification, db, ap
       showNotification("Selamat! Registrasi Berhasil. Silakan Login.");
       setView('login_portal');
     } catch (err) { 
-      console.error(err);
-      showNotification("Gagal registrasi: " + err.message); 
+      showNotification(err); 
     }
   };
   return (
@@ -591,30 +591,24 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
   const openDetailModal = (item) => { setSelectedDetailItem(item); setIsDetailModalOpen(true); };
   const closeDetailModal = () => { setIsDetailModalOpen(false); setSelectedDetailItem(null); };
   
-  // LOGIKA CREATE & UPDATE CRUD (MANDATORY RULE 1 & 3)
   const handleAddOrEdit = async (e) => { 
     e.preventDefault(); 
-    
     if (!firebaseUser) {
       showNotification("Gagal: Anda belum terautentikasi ke database.");
       return;
     }
-
     const id = editingItem ? editingItem.id : `asset-${Date.now()}`;
     const finalData = { ...formData, kategori: activeAssetTab, id: id }; 
-    
     try {
       const assetRef = doc(db, 'artifacts', appId, 'public', 'data', 'assets', id);
       await setDoc(assetRef, finalData, { merge: true });
       showNotification(editingItem ? "Data fasilitas berhasil diperbarui!" : "Data fasilitas baru berhasil ditambahkan!");
       closeModal(); 
     } catch (err) {
-      console.error("Firestore Save Error:", err);
-      showNotification("Gagal menyimpan ke database: " + err.message);
+      showNotification(err);
     }
   };
 
-  // LOGIKA DELETE CRUD
   const handleDeleteAsset = async (itemId) => {
     if (!firebaseUser) return;
     try {
@@ -622,19 +616,17 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
       await deleteDoc(assetRef);
       showNotification("Data fasilitas berhasil dihapus.");
     } catch (err) {
-      console.error("Firestore Delete Error:", err);
-      showNotification("Gagal menghapus: " + err.message);
+      showNotification(err);
     }
   };
 
-  // LOGIKA DELETE USER
   const handleDeleteUser = async (u) => {
     if (!firebaseUser) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', u.username));
       showNotification(`User ${u.nama} berhasil dihapus.`);
     } catch (err) { 
-      showNotification("Gagal menghapus user: " + err.message); 
+      showNotification(err); 
     }
   };
 
@@ -673,7 +665,7 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
             }
             showNotification(`Impor data ke ${activeAssetTab} berhasil!`); 
           } catch (err) {
-            showNotification("Gagal impor: " + err.message);
+            showNotification(err);
           }
           e.target.value = null; 
         }; 
@@ -691,7 +683,7 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
             setIsAddUserModalOpen(false); 
             showNotification(`Pengguna baru ${addUserFormData.nama} ditambahkan!`); 
           } catch (err) {
-            showNotification("Gagal tambah user: " + err.message);
+            showNotification(err);
           }
         }} users={users} onClose={() => setIsAddUserModalOpen(false)} formData={addUserFormData} setFormData={setAddUserFormData} />}
       {isUserModalOpen && <EditUserModal onClose={() => setIsUserModalOpen(false)} formData={userFormData} setFormData={setUserFormData} editingUser={editingUser} showNotification={showNotification} db={db} appId={appId} />}
@@ -934,7 +926,7 @@ function EditUserModal({ onClose, formData, setFormData, editingUser, showNotifi
       showNotification(`Data ${formData.nama} berhasil diperbarui!`);
       onClose();
     } catch (e) { 
-      showNotification("Gagal memperbarui user: " + e.message); 
+      showNotification(e); 
     }
   };
 
