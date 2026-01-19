@@ -82,13 +82,6 @@ const ELEKTRONIK_OPTIONS = [
   "Headphone", "Speaker", "Papan Interaktif Digital (PID)", "Kamera", "Drone"
 ];
 
-const INITIAL_SETTINGS = {
-  linkDbKendaraan: '',
-  linkDbElektronik: '',
-  linkDbBarangLain: '',
-  linkDbUsers: ''
-};
-
 // ==========================================
 // 2. KOMPONEN UTAMA
 // ==========================================
@@ -96,12 +89,13 @@ export default function App() {
   const [view, setView] = useState('user_dashboard'); 
   const [data, setData] = useState([]); 
   const [users, setUsers] = useState(INITIAL_USERS);
-  const [appSettings, setAppSettings] = useState(INITIAL_SETTINGS);
   const [currentUser, setCurrentUser] = useState(null);
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [notification, setNotification] = useState(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLoanModalOpen, setIsLoanModalOpen] = useState(false);
+  const [selectedLoanItem, setSelectedLoanItem] = useState(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
   // AUTHENTICATION LOGIC (RULE 3)
@@ -144,7 +138,6 @@ export default function App() {
   // SESSION RESTORATION LOGIC
   useEffect(() => {
     if (!firebaseUser || currentUser || isLoadingAuth || users.length === 0) return;
-
     const savedUser = users.find(u => u.linkedUid === firebaseUser.uid);
     if (savedUser) {
       setCurrentUser(savedUser);
@@ -192,10 +185,28 @@ export default function App() {
         await setDoc(userRef, { linkedUid: null }, { merge: true });
       } catch (e) { console.error("Logout update failed", e); }
     }
-    
     setCurrentUser(null);
     setView('user_dashboard');
     showNotification("Berhasil keluar sistem.");
+  };
+
+  const handleLoanSubmit = async (loanDetails) => {
+    if (!firebaseUser || !selectedLoanItem) return;
+    try {
+      const assetRef = doc(db, 'artifacts', appId, 'public', 'data', 'assets', selectedLoanItem.id);
+      await setDoc(assetRef, {
+        ...selectedLoanItem,
+        status: 'Dipinjam',
+        peminjam: currentUser.nama,
+        tglPinjam: loanDetails.tglPinjam,
+        tglKembali: loanDetails.tglKembali
+      }, { merge: true });
+      
+      setIsLoanModalOpen(false);
+      showNotification(`Berhasil meminjam ${selectedLoanItem.nama}!`);
+    } catch (err) {
+      showNotification("Gagal memproses peminjaman.");
+    }
   };
 
   const exportToExcel = (category = null) => {
@@ -233,7 +244,6 @@ export default function App() {
         const wb = window.XLSX.read(evt.target.result, { type: 'binary' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const importedData = window.XLSX.utils.sheet_to_json(ws);
-        showNotification("Memproses pemulihan data pengguna...");
         for (const item of importedData) {
           if (item.username === 'admin') continue;
           const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', item.username);
@@ -266,7 +276,7 @@ export default function App() {
         ) : (
           <>
             {view === 'user_dashboard' && <UserDashboard setView={setView} setSelectedCategory={setSelectedCategory} />}
-            {view === 'category_detail' && <CategoryDetail selectedCategory={selectedCategory} setView={setView} data={data} appSettings={appSettings} currentUser={currentUser} showNotification={showNotification} />}
+            {view === 'category_detail' && <CategoryDetail selectedCategory={selectedCategory} setView={setView} data={data} currentUser={currentUser} showNotification={showNotification} onLoanClick={(item) => { setSelectedLoanItem(item); setIsLoanModalOpen(true); }} />}
             {view === 'login_portal' && <LoginPortal setView={setView} users={users} setCurrentUser={setCurrentUser} showNotification={showNotification} db={db} appId={appId} firebaseUser={firebaseUser} />}
             {view === 'registration_portal' && <RegistrationPortal setView={setView} users={users} setUsers={setUsers} showNotification={showNotification} db={db} appId={appId} />}
             {view === 'admin_panel' && currentUser?.role === 'admin' && (
@@ -294,6 +304,15 @@ export default function App() {
           </>
         )}
       </main>
+
+      {isLoanModalOpen && selectedLoanItem && (
+        <LoanModal 
+          item={selectedLoanItem} 
+          user={currentUser} 
+          onClose={() => setIsLoanModalOpen(false)} 
+          onSubmit={handleLoanSubmit} 
+        />
+      )}
 
       {isProfileModalOpen && (
         <UserProfileModal 
@@ -357,14 +376,69 @@ function UserProfileModal({ currentUser, setCurrentUser, onClose, showNotificati
   };
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 max-h-[95vh] overflow-y-auto">
-        <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10 text-left"><div className="flex items-center gap-3"><div className="bg-indigo-100 p-2 rounded-xl text-indigo-600"><User size={24} /></div><h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Pengaturan Profil</h3></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"><X /></button></div>
-        <form onSubmit={handleUpdate} className="p-8 space-y-5 text-left">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 max-h-[95vh] overflow-y-auto text-left">
+        <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10"><div className="flex items-center gap-3"><div className="bg-indigo-100 p-2 rounded-xl text-indigo-600"><User size={24} /></div><h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Pengaturan Profil</h3></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"><X /></button></div>
+        <form onSubmit={handleUpdate} className="p-8 space-y-5">
           <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold uppercase" /></div>
           <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP</label><input required value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div><div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-4 bg-gray-200 border-none rounded-2xl font-bold text-gray-500 cursor-not-allowed" /></div></div>
           <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div><div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp</label><input required value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div></div>
           <div className="grid grid-cols-2 gap-4 pt-4 border-t"><div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Sandi Baru</label><div className="relative"><input required type={showPass ? "text" : "password"} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full pl-5 pr-12 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" /><button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-indigo-600">{showPass ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></div><div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Konfirmasi Sandi</label><input required type={showPass ? "text" : "password"} value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div></div>
           <div className="flex gap-4 pt-6 border-t"><button type="button" onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold">Batal</button><button type="submit" className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black">Simpan</button></div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function LoanModal({ item, user, onClose, onSubmit }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [loanDetails, setLoanDetails] = useState({ tglPinjam: today, tglKembali: today });
+  const isVehicle = item.kategori === 'Kendaraan Dinas';
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 max-h-[95vh] overflow-y-auto text-left">
+        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-orange-100 p-2 rounded-xl text-orange-600"><Clock size={24} /></div>
+            <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Formulir Pinjam</h3>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"><X /></button>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(loanDetails); }} className="p-8 space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Peminjam</label>
+            <input disabled value={user?.nama || ''} className="w-full px-5 py-4 bg-gray-100 border-none rounded-2xl font-bold text-gray-500 cursor-not-allowed uppercase" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Pinjam</label>
+              <input type="date" required value={loanDetails.tglPinjam} onChange={e => setLoanDetails({...loanDetails, tglPinjam: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Kembali</label>
+              <input type="date" required value={loanDetails.tglKembali} onChange={e => setLoanDetails({...loanDetails, tglKembali: e.target.value})} className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" />
+            </div>
+          </div>
+
+          <div className="space-y-2 pt-4 border-t border-dashed">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Fasilitas / Barang</label>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-gray-100">
+               <p className="font-black text-indigo-600 uppercase text-lg">{item.nama}</p>
+               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{item.noPlat || item.nup || 'Tanpa Kode ID'}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Rincian Deskripsi</label>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-gray-100 text-xs italic text-gray-600 leading-relaxed">
+               {isVehicle && <p className="mb-2 font-bold text-orange-600">Kilometer Saat Ini: {item.kilometer} KM</p>}
+               {item.spek || 'Tidak ada spesifikasi tambahan.'}
+            </div>
+          </div>
+
+          <div className="flex gap-4 pt-6 border-t"><button type="button" onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold uppercase tracking-widest text-xs">Batal</button><button type="submit" className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">Konfirmasi Pinjam</button></div>
         </form>
       </div>
     </div>
@@ -439,12 +513,13 @@ function UserDashboard({ setView, setSelectedCategory }) {
   );
 }
 
-function CategoryDetail({ selectedCategory, setView, data, appSettings, currentUser, showNotification }) {
+function CategoryDetail({ selectedCategory, setView, data, currentUser, showNotification, onLoanClick }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('Semua');
   const categoryData = data.filter(item => item.kategori === selectedCategory);
   const stats = { total: categoryData.length, available: categoryData.filter(i => i.status === 'Tersedia').length, borrowed: categoryData.filter(i => i.status === 'Dipinjam').length, damaged: categoryData.filter(i => i.status === 'Rusak').length };
   const filteredItems = categoryData.filter(item => (item.nama || "").toLowerCase().includes(searchTerm.toLowerCase()) && (statusFilter === 'Semua' ? true : item.status === statusFilter));
+  
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-in slide-in-from-bottom-4 duration-500 text-left">
       <div className="flex items-center gap-4 mb-8">
@@ -466,88 +541,16 @@ function CategoryDetail({ selectedCategory, setView, data, appSettings, currentU
               </div>
               <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-4 sm:pt-0">
                  <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${item.status === 'Tersedia' ? 'bg-green-50 text-green-700 border-green-100' : item.status === 'Dipinjam' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-red-50 text-red-700 border-red-100'}`}>{item.status}</span>
-                 <button onClick={() => { if (currentUser) { showNotification(`Peminjaman ${item.nama} sedang diproses untuk ${currentUser.nama}.`); } else { setView('login_portal'); } }} className="bg-indigo-600 text-white px-10 py-3 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-indigo-700 active:scale-95 shadow-lg shadow-indigo-100">Pinjam</button>
+                 {item.status === 'Tersedia' ? (
+                   <button onClick={() => { if (currentUser) { onLoanClick(item); } else { setView('login_portal'); } }} className="bg-indigo-600 text-white px-10 py-3 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-indigo-700 active:scale-95 shadow-lg shadow-indigo-100">Pinjam</button>
+                 ) : (
+                   <button disabled className="bg-gray-100 text-gray-400 px-10 py-3 rounded-2xl text-sm font-black uppercase tracking-widest cursor-not-allowed">Tidak Tersedia</button>
+                 )}
               </div>
             </div>
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function LoginPortal({ setView, users, setCurrentUser, showNotification, db, appId, firebaseUser }) {
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
-  
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const foundUser = users.find(u => u.username === identifier || u.email === identifier || u.nip === identifier);
-    
-    if (!foundUser) { showNotification("Username, Email, atau NIP tidak ditemukan."); return; }
-    if (foundUser.password !== password) { showNotification("Kata Sandi yang dimasukkan salah."); return; }
-    
-    if (firebaseUser) {
-      try {
-        const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', foundUser.username);
-        await setDoc(userRef, { ...foundUser, linkedUid: firebaseUser.uid }, { merge: true });
-      } catch (e) { console.error("Session linking failed", e); }
-    }
-
-    setCurrentUser(foundUser);
-    if (foundUser.role === 'admin') setView('admin_panel'); else setView('user_panel');
-    showNotification(`Selamat datang kembali, ${foundUser.nama}!`);
-  };
-
-  return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4 bg-slate-50">
-      <div className="bg-white p-10 rounded-[3.5rem] shadow-2xl max-w-md w-full border border-white animate-in zoom-in-95">
-        <div className="text-center mb-10"><div className="bg-indigo-600 w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-white shadow-xl rotate-3"><ShieldCheck size={40} /></div><h2 className="text-3xl font-black text-gray-900 tracking-tight leading-none mb-2 uppercase text-center">Portal Masuk</h2><p className="text-gray-400 text-sm font-medium italic text-center leading-relaxed">Gunakan Username, Email, atau NIP Anda.</p></div>
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kredensial Pengguna</label><div className="relative mt-1"><UserCircle className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={22} /><input type="text" className="w-full pl-12 pr-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 outline-none font-bold shadow-inner" placeholder="Username / Email / NIP" value={identifier} onChange={(e) => setIdentifier(e.target.value)} required /></div></div>
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Kata Sandi</label><div className="relative mt-1"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={22} /><input type="password" className="w-full pl-12 pr-5 py-4 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 outline-none font-bold shadow-inner" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required /></div></div>
-          <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl active:scale-95 mt-4 shadow-indigo-100 uppercase tracking-widest">Masuk Sekarang</button>
-        </form>
-        <div className="mt-8 flex flex-col gap-4 border-t border-gray-50 pt-8 text-center"><button onClick={() => setView('registration_portal')} className="flex items-center justify-center gap-2 text-indigo-600 font-black text-sm uppercase tracking-widest hover:text-indigo-800 transition-colors"><UserPlus size={18} /> Daftar Pengguna Baru</button><button onClick={() => showNotification("Instruksi reset sandi dikirim ke Email/WhatsApp profil.")} className="flex items-center justify-center gap-2 text-gray-400 font-bold text-sm hover:text-red-500 transition-colors uppercase tracking-widest"><KeyRound size={16} /> Lupa Password?</button></div>
-        <button onClick={() => setView('user_dashboard')} className="w-full mt-10 text-gray-300 font-black hover:text-indigo-400 text-xs uppercase tracking-[0.2em] transition-colors text-center">Kembali ke Beranda</button>
-      </div>
-    </div>
-  );
-}
-
-function RegistrationPortal({ setView, users, setUsers, showNotification, db, appId }) {
-  const [formData, setFormData] = useState({ nama: '', nip: '', username: '', email: '', whatsapp: '', password: '', confirmPassword: '' });
-  const [showPass, setShowPass] = useState(false);
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    if (!/^\d+$/.test(formData.whatsapp) || !formData.whatsapp.startsWith('0')) { showNotification("WA harus angka dan diawali 0."); return; }
-    if (!/^\d+$/.test(formData.nip)) { showNotification("NIP harus numerik (0 jika tdk ada)."); return; }
-    if (formData.password.length < 8) { showNotification("Sandi minimal 8 karakter."); return; }
-    if (formData.password !== formData.confirmPassword) { showNotification("Konfirmasi sandi tidak cocok."); return; }
-    if (users.some(u => u.username === formData.username || u.email === formData.email || (formData.nip !== "0" && u.nip === formData.nip))) { showNotification("Data identitas sudah terdaftar."); return; }
-    try {
-      const newUser = { ...formData, nama: formData.nama.toUpperCase(), role: 'user', historyTerlambat: 0, historyRusak: 0, id: Date.now().toString(), foto: null };
-      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', newUser.username);
-      await setDoc(userRef, newUser);
-      showNotification("Selamat! Registrasi Berhasil. Silakan Login.");
-      setView('login_portal');
-    } catch (err) { 
-      showNotification(err); 
-    }
-  };
-  return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4 bg-slate-50">
-      <div className="bg-white p-10 rounded-[3.5rem] shadow-2xl max-w-xl w-full border border-white animate-in zoom-in-95 overflow-y-auto max-h-[95vh]">
-        <div className="text-center mb-8"><div className="bg-emerald-500 w-16 h-16 rounded-[1.5rem] flex items-center justify-center mx-auto mb-4 text-white shadow-lg rotate-6"><UserPlus size={32} /></div><h2 className="text-2xl font-black text-gray-900 uppercase tracking-tight text-center">Registrasi Akun</h2><p className="text-gray-400 text-sm font-medium italic text-center">Sistem Kedisiplinan Internal SIKOPIFASTA</p></div>
-        <form className="space-y-4" onSubmit={handleRegister}>
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap (Wajib)</label><input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none font-bold uppercase" placeholder="MASUKKAN NAMA LENGKAP" /></div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 text-xs">NIP (0 jika tdk ada)</label><input required type="text" value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none font-bold" placeholder="19XXXXXXXXXX" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 text-xs">Username (Tanpa Spasi)</label><input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value.replace(/\s/g, '').toLowerCase()})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none font-bold" placeholder="usernameanda" /></div></div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 text-xs">Email Kantor/Pribadi</label><input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none font-bold" placeholder="nama@email.com" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 text-xs">No. WhatsApp (Awalan 0)</label><input required type="text" value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none font-bold" placeholder="08XXXXXXXXXX" /></div></div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 text-xs">Password</label><div className="relative"><input required type={showPass ? "text" : "password"} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none font-bold pr-12" /><button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-emerald-600 transition-colors">{showPass ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></div><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 text-xs">Konfirmasi Password</label><input required type="password" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-emerald-100 outline-none font-bold" /></div></div>
-          <button type="submit" className="w-full bg-emerald-600 text-white py-4 rounded-[1.8rem] font-black text-lg hover:bg-emerald-700 transition-all shadow-xl mt-6 uppercase tracking-[0.2em] shadow-emerald-100">Daftar Sekarang</button>
-        </form>
-        <button onClick={() => setView('login_portal')} className="w-full mt-6 text-gray-400 font-bold hover:text-indigo-600 transition-colors text-xs uppercase tracking-widest text-center underline">Batal / Kembali ke Login</button>
-      </div>
     </div>
   );
 }
@@ -768,337 +771,6 @@ function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, openModal
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminUsersSection({ users, data, userSearch, setUserSearch, onAddClick, onEdit, onReset, onDelete, onExportUsers, onImportUsers }) {
-  const filteredUsers = users.filter(u => (u.nama || "").toLowerCase().includes(userSearch.toLowerCase()) || (u.username || "").toLowerCase().includes(userSearch.toLowerCase()) || (u.nip || "").includes(userSearch));
-  
-  return (
-    <div className="animate-in fade-in text-left">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-8">
-        <div><h2 className="text-2xl font-black text-gray-900 mb-1 uppercase tracking-tight">Manajemen Pengguna</h2><p className="text-gray-400 text-sm font-medium italic">Total: <span className="text-indigo-600 font-bold">{users.length} Pegawai</span></p></div>
-        <div className="flex flex-wrap gap-3">
-          <button onClick={onImportUsers} className="flex-1 sm:flex-none bg-emerald-50 text-emerald-700 border border-emerald-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all text-xs uppercase tracking-widest"><Upload size={18} /> Restore</button>
-          <button onClick={onExportUsers} className="flex-1 sm:flex-none bg-blue-50 text-blue-700 border border-blue-100 px-5 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-blue-100 transition-all text-xs uppercase tracking-widest"><Database size={18} /> Backup</button>
-          <button onClick={onAddClick} className="flex-1 sm:flex-none bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-xl uppercase tracking-widest text-xs"><UserPlus size={20} /> Tambah User</button>
-        </div>
-      </div>
-      <div className="relative mb-6"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Cari berdasarkan nama, NIP, atau username..." className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-100 rounded-2xl focus:ring-4 focus:ring-indigo-100 outline-none font-bold shadow-sm" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} /></div>
-      <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm min-w-[1000px]">
-            <thead className="bg-gray-50/50 border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">Identitas Pegawai</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">NIP / Username</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">Kontak / Email</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest">Role</th>
-                <th className="px-6 py-4 font-black text-gray-400 uppercase tracking-widest text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredUsers.map(u => (
-                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 overflow-hidden shrink-0 border border-indigo-200">
-                      {u.foto ? <img src={u.foto} className="w-full h-full object-cover" /> : <User className="w-full h-full p-2 text-indigo-400" />}
-                    </div>
-                    <div><div className="font-bold text-gray-900 uppercase leading-none mb-1">{u.nama}</div><div className="text-[10px] text-gray-400 font-bold italic">Tergabung: {u.role}</div></div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-gray-700">{u.nip}</div>
-                    <div className="text-xs text-indigo-600 font-bold">@{u.username}</div>
-                  </td>
-                  <td className="px-6 py-4 text-xs font-medium">
-                    <div className="flex items-center gap-1.5"><Phone size={12}/> {u.whatsapp}</div>
-                    <div className="flex items-center gap-1.5"><Mail size={12}/> {u.email}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{u.role}</span>
-                  </td>
-                  <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    <button onClick={() => onReset(u)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg" title="Reset Password"><RotateCcw size={18}/></button>
-                    <button onClick={() => onEdit(u)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg" title="Edit Profil"><Edit size={18}/></button>
-                    <button onClick={() => onDelete(u.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg" title="Hapus User"><Trash2 size={18}/></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminProfileSection({ adminProfile, setAdminProfile, showNotification }) {
-  const [formData, setFormData] = useState({ ...adminProfile });
-  const handleUpdate = (e) => {
-    e.preventDefault();
-    setAdminProfile({...formData, nama: formData.nama.toUpperCase()});
-    showNotification("Profil admin berhasil diperbarui!");
-  };
-
-  return (
-    <div className="animate-in fade-in max-w-2xl mx-auto text-left">
-      <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden p-8">
-        <div className="flex flex-col items-center mb-8">
-           <div className="relative group">
-              <div className="w-32 h-32 rounded-[2.5rem] bg-indigo-50 border-4 border-indigo-100 overflow-hidden shadow-inner flex items-center justify-center">
-                {formData.foto ? <img src={formData.foto} className="w-full h-full object-cover" /> : <UserCircle size={100} className="text-indigo-200" />}
-              </div>
-              <button className="absolute -bottom-2 -right-2 bg-white p-2 rounded-xl shadow-lg border border-gray-100 text-indigo-600 hover:scale-110 transition-transform"><Camera size={18}/></button>
-           </div>
-           <h2 className="text-xl font-black mt-4 uppercase tracking-tight">{adminProfile.nama}</h2>
-           <p className="text-gray-400 text-xs font-bold uppercase tracking-[0.2em] mt-1 italic">Master Administrator</p>
-        </div>
-        <form onSubmit={handleUpdate} className="space-y-4">
-           <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold uppercase" /></div>
-           <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP Pegawai</label><input value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-3.5 bg-gray-100 rounded-2xl border-none outline-none font-bold text-gray-400 cursor-not-allowed" /></div>
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
-              <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp</label><input value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
-           </div>
-           <div className="pt-4 border-t border-dashed text-left">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Foto Profil (URL)</label>
-              <input value={formData.foto || ''} onChange={e => setFormData({...formData, foto: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold text-xs" placeholder="https://..." />
-           </div>
-           <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all mt-4 flex items-center justify-center gap-2"><Save size={20}/> Simpan Perubahan</button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function EditUserModal({ onClose, formData, setFormData, editingUser, showNotification, db, appId }) {
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-    try {
-      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', editingUser.username);
-      await setDoc(userRef, { ...editingUser, ...formData, nama: formData.nama.toUpperCase() }, { merge: true });
-      showNotification(`Data ${formData.nama} berhasil diperbarui!`);
-      onClose();
-    } catch (e) { 
-      showNotification(e); 
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 text-left"><div className="flex items-center gap-3"><Edit className="text-indigo-600" /><h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Edit Data Pengguna</h3></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X /></button></div>
-        <form onSubmit={handleUpdate} className="p-8 space-y-4 text-left">
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold uppercase" /></div>
-          <div className="grid grid-cols-2 gap-4">
-             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP</label><input required value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
-             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input disabled value={formData.username} className="w-full px-5 py-4 bg-gray-100 border-none rounded-2xl outline-none font-bold text-gray-400 cursor-not-allowed" /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
-             <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp</label><input required value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
-          </div>
-          <div className="flex gap-4 pt-6"><button type="button" onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold">Batal</button><button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold">Simpan</button></div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AddUserModal({ onSubmit, users, onClose, formData, setFormData }) {
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 text-left"><div className="flex items-center gap-3"><UserPlus className="text-indigo-600" /><h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">Tambah Pengguna Baru</h3></div><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X /></button></div>
-        <form onSubmit={onSubmit} className="p-8 space-y-4 text-left">
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Lengkap</label><input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-4 focus:ring-indigo-100 outline-none font-bold uppercase" /></div>
-          <div className="grid grid-cols-2 gap-4"><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">NIP</label><input required value={formData.nip} onChange={e => setFormData({...formData, nip: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div><div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Username</label><input required value={formData.username} onChange={e => setFormData({...formData, username: e.target.value.toLowerCase().replace(/\s/g, '')})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div></div>
-          <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 border-none rounded-2xl outline-none font-bold" /></div>
-          <div className="flex gap-4 pt-6"><button type="button" onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold">Batal</button><button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold">Tambah</button></div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AssetModal({ activeAssetTab, editingItem, formData, setFormData, closeModal, handleAddOrEdit }) {
-  const isVehicle = activeAssetTab === 'Kendaraan Dinas';
-  const isElectronic = activeAssetTab === 'Peralatan Elektronik';
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-        <div className="p-8 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 text-left">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl text-white ${isVehicle ? 'bg-indigo-600' : isElectronic ? 'bg-emerald-600' : 'bg-amber-600'}`}>
-              {isVehicle ? <Car size={24} /> : isElectronic ? <Laptop size={24} /> : <Package size={24} />}
-            </div>
-            <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tight">{editingItem ? 'Edit' : 'Tambah'} {activeAssetTab}</h3>
-          </div>
-          <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-400"><X /></button>
-        </div>
-        <form onSubmit={handleAddOrEdit} className="p-8 space-y-6 text-left">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {!isVehicle && (
-              <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Kode NUP</label><input required value={formData.nup || ''} onChange={e => setFormData({...formData, nup: e.target.value})} className="w-full px-5 py-4 bg-gray-50 rounded-2xl outline-none font-bold" placeholder="LNN-XXXX" /></div>
-            )}
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Nama {isVehicle ? 'Kendaraan' : isElectronic ? 'Alat' : 'Barang'}</label>
-              {isElectronic ? (
-                <select value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value})} className="w-full px-4 py-4 bg-gray-50 rounded-2xl outline-none font-bold">
-                  <option value="">-- Pilih --</option>
-                  {ELEKTRONIK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
-              ) : (
-                <input required value={formData.nama} onChange={e => setFormData({...formData, nama: e.target.value})} className="w-full px-5 py-4 bg-gray-50 rounded-2xl outline-none font-bold" placeholder="Contoh: Toyota Avanza" />
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Status</label><select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="w-full px-4 py-4 bg-gray-50 rounded-2xl outline-none font-bold"><option value="Tersedia">Tersedia</option><option value="Dipinjam">Dipinjam</option><option value="Rusak">Rusak</option></select></div>
-            {formData.status === 'Rusak' && (
-              <div className="space-y-2 animate-in slide-in-from-top-2"><label className="text-xs font-black text-red-500 uppercase tracking-widest ml-1">Deskripsi Kerusakan</label><textarea required value={formData.deskripsiRusak || ''} onChange={e => setFormData({...formData, deskripsiRusak: e.target.value})} className="w-full px-5 py-3 bg-red-50 rounded-2xl outline-none font-bold border border-red-100 h-24" placeholder="Sebutkan detail kerusakan..." /></div>
-            )}
-          </div>
-
-          {formData.status === 'Dipinjam' && (
-            <div className="p-6 bg-orange-50 rounded-3xl space-y-4 border border-orange-100 animate-in slide-in-from-top-2">
-              <div className="flex items-center gap-2 mb-2"><Clock className="text-orange-600" size={18}/><span className="text-xs font-black text-orange-900 uppercase tracking-widest">Informasi Peminjaman</span></div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nama Peminjam</label>
-                <input required value={formData.peminjam || ''} onChange={e => setFormData({...formData, peminjam: e.target.value.toUpperCase()})} className="w-full px-5 py-3 bg-white rounded-xl outline-none font-bold border border-orange-200" placeholder="MASUKKAN NAMA PEMINJAM" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Pinjam</label>
-                  <input required type="date" value={formData.tglPinjam || ''} onChange={e => setFormData({...formData, tglPinjam: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl outline-none font-bold border border-orange-200" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tanggal Kembali</label>
-                  <input required type="date" value={formData.tglKembali || ''} onChange={e => setFormData({...formData, tglKembali: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl outline-none font-bold border border-orange-200" />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {isVehicle && (
-            <div className="space-y-6 pt-4 border-t border-dashed">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nomor Plat</label><input required value={formData.noPlat || ''} onChange={e => setFormData({...formData, noPlat: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold font-mono" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">No. Rangka</label><input value={formData.noRangka || ''} onChange={e => setFormData({...formData, noRangka: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold text-xs" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">No. Mesin</label><input value={formData.noMesin || ''} onChange={e => setFormData({...formData, noMesin: e.target.value})} className="w-full px-4 py-3 bg-gray-50 rounded-xl outline-none font-bold text-xs" /></div>
-              </div>
-              <div className="p-6 bg-indigo-50/50 rounded-3xl space-y-4 border border-indigo-100">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2"><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Tanggal Ganti Oli Mesin</label><input type="date" value={formData.tglOliMesin || ''} onChange={e => setFormData({...formData, tglOliMesin: e.target.value})} className="w-full px-4 py-3 bg-white rounded-xl outline-none font-bold text-xs border border-indigo-100" /></div>
-                  <div className="space-y-2"><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Tanggal Ganti Oli Mesin Berikutnya</label><input type="date" value={formData.tglOliMesinNext || ''} onChange={e => setFormData({...formData, tglOliMesinNext: e.target.value})} className="w-full px-4 py-3 bg-white rounded-xl outline-none font-bold text-xs border border-indigo-100" /></div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2"><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Tanggal Ganti Oli Perseneling</label><input type="date" value={formData.tglOliPerseneling || ''} onChange={e => setFormData({...formData, tglOliPerseneling: e.target.value})} className="w-full px-4 py-3 bg-white rounded-xl outline-none font-bold text-xs border border-indigo-100" /></div>
-                  <div className="space-y-2"><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Tanggal Ganti Oli Perseneling Berikutnya</label><input type="date" value={formData.tglOliPersenelingNext || ''} onChange={e => setFormData({...formData, tglOliPersenelingNext: e.target.value})} className="w-full px-4 py-3 bg-white rounded-xl outline-none font-bold text-xs border border-indigo-100" /></div>
-                </div>
-                <div className="space-y-2"><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Tanggal Bayar Pajak Berikutnya</label><input type="date" value={formData.tglPajak || ''} onChange={e => setFormData({...formData, tglPajak: e.target.value})} className="w-full px-4 py-3 bg-white rounded-xl outline-none font-bold text-xs border border-amber-100" /></div>
-              </div>
-            </div>
-          )}
-
-          {!isVehicle && (
-            <div className="grid grid-cols-1 gap-6 pt-4 border-t border-dashed">
-              <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Merek</label><input required value={formData.merek || ''} onChange={e => setFormData({...formData, merek: e.target.value})} className="w-full px-5 py-3 bg-gray-50 rounded-2xl outline-none font-bold" placeholder="Contoh: Epson / MacBook" /></div>
-              <div className="space-y-2"><label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Spesifikasi Detail</label><textarea value={formData.spek || ''} onChange={e => setFormData({...formData, spek: e.target.value})} className="w-full px-5 py-4 bg-gray-50 rounded-2xl outline-none font-bold h-32" placeholder="Masukkan spesifikasi lengkap..." /></div>
-            </div>
-          )}
-
-          <div className="flex gap-4 pt-6"><button type="button" onClick={closeModal} className="flex-1 py-4 rounded-2xl font-bold bg-gray-100 uppercase tracking-widest text-xs">Batal</button><button type="submit" className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs">Simpan Data</button></div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AssetDetailModal({ selectedDetailItem, closeDetailModal }) {
-  if (!selectedDetailItem) return null;
-  const isVehicle = selectedDetailItem.kategori === 'Kendaraan Dinas';
-  const isElectronic = selectedDetailItem.kategori === 'Peralatan Elektronik';
-  const themeColor = isVehicle ? 'bg-indigo-600' : isElectronic ? 'bg-emerald-600' : 'bg-amber-600';
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-        <div className={`p-8 border-b border-gray-100 flex items-center justify-between ${themeColor} text-white`}>
-          <div className="flex items-center gap-3 text-left">
-            <div className="bg-white/20 p-2 rounded-xl">{isVehicle ? <Car size={24} /> : isElectronic ? <Laptop size={24} /> : <Package size={24} />}</div>
-            <div><h3 className="text-xl font-black uppercase tracking-tight leading-none mb-1">Rincian Unit</h3><p className="text-white/80 text-[10px] uppercase">Informasi Detail Aset</p></div>
-          </div>
-          <button onClick={closeDetailModal} className="p-2 hover:bg-white/10 rounded-xl transition-colors"><X /></button>
-        </div>
-        <div className="p-8 overflow-y-auto space-y-8 text-left">
-          <div className="p-6 bg-slate-50 rounded-3xl border border-gray-100">
-            <h2 className="text-3xl font-black text-slate-900 uppercase leading-tight">{selectedDetailItem.nama}</h2>
-            <div className="flex items-center gap-2 mt-2">
-              <div className={`${themeColor} text-white px-4 py-1 rounded-lg font-mono font-bold`}>{selectedDetailItem.noPlat || selectedDetailItem.nup || '-'}</div>
-              <span className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase bg-white border border-gray-200`}>{selectedDetailItem.status}</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-            <div className="space-y-4">
-              <h4 className="font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><ClipboardList size={16} /> Identitas Fisik</h4>
-              <div className="space-y-2">
-                {isVehicle ? (
-                  <>
-                    <div className="flex justify-between"><span>No. Rangka:</span><span className="font-bold font-mono text-[10px]">{selectedDetailItem.noRangka || '-'}</span></div>
-                    <div className="flex justify-between"><span>No. Mesin:</span><span className="font-bold font-mono text-[10px]">{selectedDetailItem.noMesin || '-'}</span></div>
-                    <div className="flex justify-between"><span>Kilometer:</span><span className="font-bold text-indigo-600">{selectedDetailItem.kilometer || '0'} KM</span></div>
-                    <div className="flex justify-between border-t pt-2 mt-2 text-[10px]"><span>Tgl Oli Mesin:</span><span className="font-bold">{selectedDetailItem.tglOliMesin || '-'}</span></div>
-                    <div className="flex justify-between text-indigo-600 text-[10px]"><span>Oli Mesin Next:</span><span className="font-bold">{selectedDetailItem.tglOliMesinNext || '-'}</span></div>
-                    <div className="flex justify-between border-t pt-2 text-[10px]"><span>Tgl Oli Perseneling:</span><span className="font-bold">{selectedDetailItem.tglOliPerseneling || '-'}</span></div>
-                    <div className="flex justify-between text-indigo-600 text-[10px]"><span>Oli Perseneling Next:</span><span className="font-bold">{selectedDetailItem.tglOliPersenelingNext || '-'}</span></div>
-                    <div className="flex justify-between border-t pt-2 text-amber-600 text-[10px]"><span>Bayar Pajak Next:</span><span className="font-bold">{selectedDetailItem.tglPajak || '-'}</span></div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex justify-between"><span>Kode NUP:</span><span className="font-bold">{selectedDetailItem.nup || '-'}</span></div>
-                    <div className="flex justify-between"><span>Merek:</span><span className="font-bold uppercase">{selectedDetailItem.merek || '-'}</span></div>
-                  </>
-                )}
-                <div className="flex justify-between"><span>Kategori:</span><span className="font-bold uppercase text-[10px]">{selectedDetailItem.kategori}</span></div>
-              </div>
-            </div>
-
-            <div className="space-y-4 text-left">
-              <h4 className="font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><Wrench size={16} /> Spesifikasi</h4>
-              <div className="p-3 bg-slate-50 rounded-xl italic text-xs leading-relaxed">{selectedDetailItem.spek || 'Tidak ada spesifikasi tambahan.'}</div>
-            </div>
-          </div>
-
-          {selectedDetailItem.status === 'Dipinjam' && (
-            <div className="bg-orange-50 p-5 rounded-3xl border border-orange-100 animate-in fade-in">
-               <h4 className="text-sm font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-orange-200 pb-2"><UserCheck size={18} /> Informasi Peminjam</h4>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div><p className="text-[10px] text-orange-400 font-black uppercase">Peminjam</p><p className="font-bold text-orange-900 uppercase">{selectedDetailItem.peminjam || '-'}</p></div>
-                 <div className="flex gap-4">
-                    <div><p className="text-[10px] text-orange-400 font-black uppercase">Tgl Pinjam</p><p className="font-bold text-orange-900">{selectedDetailItem.tglPinjam || '-'}</p></div>
-                    <div><p className="text-[10px] text-orange-400 font-black uppercase">Tgl Kembali</p><p className="font-bold text-orange-900">{selectedDetailItem.tglKembali || '-'}</p></div>
-                 </div>
-               </div>
-            </div>
-          )}
-
-          {selectedDetailItem.status === 'Rusak' && (
-            <div className="bg-red-50 p-5 rounded-3xl border border-red-100 animate-in fade-in">
-               <h4 className="text-sm font-black text-red-700 uppercase tracking-widest mb-2 flex items-center gap-2"><AlertCircle size={18} /> Detail Kerusakan</h4>
-               <p className="text-red-900 font-medium italic text-xs leading-relaxed">"{selectedDetailItem.deskripsiRusak || 'Keterangan belum diisi.'}"</p>
-            </div>
-          )}
-        </div>
-        <div className="p-8 border-t border-gray-100 bg-gray-50 flex justify-end"><button onClick={closeDetailModal} className={`${themeColor} text-white px-10 py-4 rounded-[1.8rem] font-black uppercase text-xs shadow-lg transition-all active:scale-95`}>Tutup Rincian</button></div>
       </div>
     </div>
   );
