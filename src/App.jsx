@@ -265,7 +265,7 @@ export default function App() {
           </div>
         ) : (
           <>
-            {view === 'user_dashboard' && <UserDashboard setView={setView} setSelectedCategory={setSelectedCategory} exportToExcel={() => exportToExcel()} />}
+            {view === 'user_dashboard' && <UserDashboard setView={setView} setSelectedCategory={setSelectedCategory} />}
             {view === 'category_detail' && <CategoryDetail selectedCategory={selectedCategory} setView={setView} data={data} appSettings={appSettings} currentUser={currentUser} showNotification={showNotification} />}
             {view === 'login_portal' && <LoginPortal setView={setView} users={users} setCurrentUser={setCurrentUser} showNotification={showNotification} db={db} appId={appId} firebaseUser={firebaseUser} />}
             {view === 'registration_portal' && <RegistrationPortal setView={setView} users={users} setUsers={setUsers} showNotification={showNotification} db={db} appId={appId} />}
@@ -273,7 +273,6 @@ export default function App() {
               <AdminPanel 
                 data={data} 
                 users={users} 
-                appSettings={appSettings} setAppSettings={setAppSettings}
                 adminProfile={currentUser} setAdminProfile={setCurrentUser} 
                 showNotification={showNotification} setView={setView} 
                 exportCategoryExcel={exportToExcel}
@@ -420,10 +419,10 @@ function Notification({ message }) {
   );
 }
 
-function UserDashboard({ setView, setSelectedCategory, exportToExcel }) {
+function UserDashboard({ setView, setSelectedCategory }) {
   return (
-    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-in fade-in duration-500">
-      <div className="text-center mb-12">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-in fade-in duration-500 text-center">
+      <div className="mb-12">
         <h1 className="text-3xl sm:text-4xl font-black text-gray-900 mb-4 tracking-tight uppercase">SIKOPIFASTA</h1>
         <p className="text-gray-500 max-w-2xl mx-auto text-lg italic font-medium leading-relaxed">"Sistem Kontrol Pinjam Fasilitas dan Inventaris" <br/><span className="text-sm not-italic font-normal opacity-70">Kelola peminjaman sarana prasarana kantor lebih transparan.</span></p>
       </div>
@@ -435,11 +434,6 @@ function UserDashboard({ setView, setSelectedCategory, exportToExcel }) {
             <div className="bg-white/10 w-full py-2.5 rounded-2xl"><ChevronRight size={24} className="mx-auto" /></div>
           </button>
         ))}
-      </div>
-      <div className="mt-16 bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
-        <div className="relative z-10"><h3 className="font-black text-gray-900 text-xl mb-2 flex items-center gap-2"><Download className="text-indigo-600" size={24} /> Database Fasilitas</h3><p className="text-gray-500 font-medium">Unduh data inventaris terbaru dalam format Excel (.xlsx) untuk laporan.</p></div>
-        <button onClick={exportToExcel} className="relative z-10 w-full md:w-auto bg-gray-900 text-white px-8 py-4 rounded-[1.5rem] font-black flex items-center justify-center gap-3 hover:bg-gray-800 transition-all shadow-lg active:scale-95 uppercase text-sm tracking-widest"><Download size={20} /> Unduh Excel</button>
-        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
       </div>
     </div>
   );
@@ -743,23 +737,23 @@ function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, openModal
                 const isOverdue = checkOverdue(item);
                 return (
                   <tr key={item.id} className={`transition-colors ${isOverdue ? 'bg-red-50/70' : 'hover:bg-slate-50'}`}>
-                    <td className="px-6 py-5 flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                    <td className="px-6 py-5 flex items-center gap-4 text-left">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isOverdue ? 'bg-red-100 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
                         {item.kategori === 'Kendaraan Dinas' ? <Car size={20}/> : item.kategori === 'Peralatan Elektronik' ? <Laptop size={20}/> : <Package size={20}/>}
                       </div>
                       <div>
-                        <div className="font-bold text-gray-900 uppercase">{item.nama}</div>
-                        <div className="text-[10px] text-gray-400">{item.noPlat || item.nup}</div>
+                        <div className="font-bold text-gray-900 uppercase leading-none mb-1">{item.nama}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">{item.noPlat || item.nup}</div>
                       </div>
                     </td>
                     <td className="px-6 py-5 font-bold text-gray-800 uppercase text-xs">{item.peminjam || '-'}</td>
-                    <td className="px-6 py-5 text-gray-500">{item.tglPinjam || '-'}</td>
+                    <td className="px-6 py-5 text-gray-500 font-medium">{item.tglPinjam || '-'}</td>
                     <td className="px-6 py-5">
                        <span className={`font-bold ${isOverdue ? 'text-red-600' : 'text-gray-700'}`}>{item.tglKembali || '-'}</span>
                        {isOverdue && <span className="block text-[8px] font-black uppercase text-red-500 tracking-tighter mt-0.5">TERLAMBAT</span>}
                     </td>
                     <td className="px-6 py-5 text-center">
-                      <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${item.status === 'Tersedia' ? 'bg-green-50 text-green-700' : item.status === 'Dipinjam' ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700'}`}>
+                      <span className={`px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border ${item.status === 'Tersedia' ? 'bg-green-50 text-green-700 border-green-100' : item.status === 'Dipinjam' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-red-50 text-red-700 border-red-100'}`}>
                         {item.status}
                       </span>
                     </td>
@@ -812,7 +806,7 @@ function AdminUsersSection({ users, data, userSearch, setUserSearch, onAddClick,
                     <div className="w-10 h-10 rounded-full bg-indigo-100 overflow-hidden shrink-0 border border-indigo-200">
                       {u.foto ? <img src={u.foto} className="w-full h-full object-cover" /> : <User className="w-full h-full p-2 text-indigo-400" />}
                     </div>
-                    <div><div className="font-bold text-gray-900 uppercase">{u.nama}</div><div className="text-[10px] text-gray-400 font-bold italic">Tergabung: {u.role}</div></div>
+                    <div><div className="font-bold text-gray-900 uppercase leading-none mb-1">{u.nama}</div><div className="text-[10px] text-gray-400 font-bold italic">Tergabung: {u.role}</div></div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="font-bold text-gray-700">{u.nip}</div>
@@ -853,8 +847,8 @@ function AdminProfileSection({ adminProfile, setAdminProfile, showNotification }
       <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm overflow-hidden p-8">
         <div className="flex flex-col items-center mb-8">
            <div className="relative group">
-              <div className="w-32 h-32 rounded-[2.5rem] bg-indigo-50 border-4 border-indigo-100 overflow-hidden shadow-inner">
-                {formData.foto ? <img src={formData.foto} className="w-full h-full object-cover" /> : <UserCircle size={100} className="text-indigo-200 mt-2 mx-auto" />}
+              <div className="w-32 h-32 rounded-[2.5rem] bg-indigo-50 border-4 border-indigo-100 overflow-hidden shadow-inner flex items-center justify-center">
+                {formData.foto ? <img src={formData.foto} className="w-full h-full object-cover" /> : <UserCircle size={100} className="text-indigo-200" />}
               </div>
               <button className="absolute -bottom-2 -right-2 bg-white p-2 rounded-xl shadow-lg border border-gray-100 text-indigo-600 hover:scale-110 transition-transform"><Camera size={18}/></button>
            </div>
@@ -871,7 +865,7 @@ function AdminProfileSection({ adminProfile, setAdminProfile, showNotification }
               <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email</label><input value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
               <div><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp</label><input value={formData.whatsapp} onChange={e => setFormData({...formData, whatsapp: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold" /></div>
            </div>
-           <div className="pt-4 border-t border-dashed">
+           <div className="pt-4 border-t border-dashed text-left">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Foto Profil (URL)</label>
               <input value={formData.foto || ''} onChange={e => setFormData({...formData, foto: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold text-xs" placeholder="https://..." />
            </div>
