@@ -130,10 +130,6 @@ export default function App() {
     const usersCol = collection(db, 'artifacts', appId, 'public', 'data', 'users');
     const unsubscribe = onSnapshot(usersCol, (snapshot) => {
       const usersFromDb = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-      
-      // PERBAIKAN LOGIKA SYNC: 
-      // Kita gabungkan data dari database. Jika ada data 'admin' di DB, ia akan menimpa data statis.
-      // Ini penting agar 'linkedUid' milik admin di DB bisa terbaca untuk restore sesi.
       const combined = [...usersFromDb];
       INITIAL_USERS.forEach(iu => {
         if (!combined.find(u => u.username === iu.username)) {
@@ -147,7 +143,6 @@ export default function App() {
 
   // SESSION RESTORATION LOGIC
   useEffect(() => {
-    // Jalankan pemulihan hanya jika data users sudah dimuat
     if (!firebaseUser || currentUser || isLoadingAuth || users.length === 0) return;
 
     const savedUser = users.find(u => u.linkedUid === firebaseUser.uid);
@@ -378,7 +373,6 @@ function UserProfileModal({ currentUser, setCurrentUser, onClose, showNotificati
 }
 
 function Header({ view, setView, currentUser, onLogout, setSelectedCategory, onOpenSettings }) {
-  // PERBAIKAN: Tombol logout sekarang memanggil props onLogout (yang mengarah ke handleLogout di App)
   return (
     <nav className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -499,7 +493,6 @@ function LoginPortal({ setView, users, setCurrentUser, showNotification, db, app
     if (!foundUser) { showNotification("Username, Email, atau NIP tidak ditemukan."); return; }
     if (foundUser.password !== password) { showNotification("Kata Sandi yang dimasukkan salah."); return; }
     
-    // PERBAIKAN: Gunakan setDoc dengan merge true agar Admin Master statis juga bisa menyimpan linkedUid
     if (firebaseUser) {
       try {
         const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', foundUser.username);
@@ -565,7 +558,7 @@ function RegistrationPortal({ setView, users, setUsers, showNotification, db, ap
   );
 }
 
-function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel, db, appId, firebaseUser }) {
+function AdminPanel({ data, users, adminProfile, setAdminProfile, showNotification, setView, exportCategoryExcel, onExportUsers, onImportUsersExcel, db, appId, firebaseUser }) {
   const [adminSubView, setAdminSubView] = useState('assets'); 
   const [activeAssetTab, setActiveAssetTab] = useState('Kendaraan Dinas'); 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -644,17 +637,14 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
         <button onClick={() => setAdminSubView('assets')} className={`flex-1 sm:flex-none flex items-center gap-2 px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${adminSubView === 'assets' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><LayoutGrid size={18} /> Inventaris</button>
         <button onClick={() => setAdminSubView('users')} className={`flex-1 sm:flex-none flex items-center gap-2 px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${adminSubView === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Users size={18} /> Pengguna</button>
         <button onClick={() => setAdminSubView('profile')} className={`flex-1 sm:flex-none flex items-center gap-2 px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${adminSubView === 'profile' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><UserCircle size={18} /> Profil</button>
-        <button onClick={() => setAdminSubView('settings')} className={`flex-1 sm:flex-none flex items-center gap-2 px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${adminSubView === 'settings' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><Settings size={18} /> Sistem</button>
       </div>
 
       {adminSubView === 'assets' ? (
-        <AdminAssetsSection activeAssetTab={activeAssetTab} setActiveAssetTab={setActiveAssetTab} data={data} openModal={openModal} openDetailModal={openDetailModal} showNotification={showNotification} adminSearch={adminSearch} setAdminSearch={setAdminSearch} adminStatusFilter={adminStatusFilter} setAdminStatusFilter={setAdminStatusFilter} exportCategoryExcel={exportCategoryExcel} onImportClick={() => fileInputRef.current?.click()} appSettings={appSettings} onDelete={handleDeleteAsset} />
+        <AdminAssetsSection activeAssetTab={activeAssetTab} setActiveAssetTab={setActiveAssetTab} data={data} openModal={openModal} openDetailModal={openDetailModal} showNotification={showNotification} adminSearch={adminSearch} setAdminSearch={setAdminSearch} adminStatusFilter={adminStatusFilter} setAdminStatusFilter={setAdminStatusFilter} exportCategoryExcel={exportCategoryExcel} onImportClick={() => fileInputRef.current?.click()} onDelete={handleDeleteAsset} />
       ) : adminSubView === 'users' ? (
         <AdminUsersSection users={users} data={data} userSearch={userSearch} setUserSearch={setUserSearch} onAddClick={() => setIsAddUserModalOpen(true)} onEdit={(u) => { setEditingUser(u); setUserFormData({nama: u.nama, nip: u.nip, email: u.email, whatsapp: u.whatsapp, username: u.username, password: u.password}); setIsUserModalOpen(true); }} onReset={(u) => { showNotification(`Password ${u.nama} direset ke password123`); }} onDelete={handleDeleteUser} onExportUsers={onExportUsers} onImportUsers={() => userFileInputRef.current?.click()} />
-      ) : adminSubView === 'profile' ? (
-        <AdminProfileSection adminProfile={adminProfile} setAdminProfile={setAdminProfile} showNotification={showNotification} />
       ) : (
-        <AppSettingsSection appSettings={appSettings} setAppSettings={setAppSettings} showNotification={showNotification} />
+        <AdminProfileSection adminProfile={adminProfile} setAdminProfile={setAdminProfile} showNotification={showNotification} />
       )}
 
       <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={async (e) => { 
@@ -703,7 +693,7 @@ function AdminPanel({ data, users, appSettings, setAppSettings, adminProfile, se
 
 // ============= SUB COMPONENT DEFINITIONS =============
 
-function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, openModal, openDetailModal, showNotification, adminSearch, setAdminSearch, adminStatusFilter, setAdminStatusFilter, exportCategoryExcel, onImportClick, appSettings, onDelete }) {
+function AdminAssetsSection({ activeAssetTab, setActiveAssetTab, data, openModal, openDetailModal, showNotification, adminSearch, setAdminSearch, adminStatusFilter, setAdminStatusFilter, exportCategoryExcel, onImportClick, onDelete }) {
   const categoryData = data.filter(item => item.kategori === activeAssetTab);
   const stats = { total: categoryData.length, available: categoryData.filter(i => i.status === 'Tersedia').length, borrowed: categoryData.filter(i => i.status === 'Dipinjam').length, damaged: categoryData.filter(i => i.status === 'Rusak').length };
   
@@ -886,39 +876,6 @@ function AdminProfileSection({ adminProfile, setAdminProfile, showNotification }
               <input value={formData.foto || ''} onChange={e => setFormData({...formData, foto: e.target.value})} className="w-full px-5 py-3.5 bg-gray-50 rounded-2xl border-none outline-none font-bold text-xs" placeholder="https://..." />
            </div>
            <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all mt-4 flex items-center justify-center gap-2"><Save size={20}/> Simpan Perubahan</button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AppSettingsSection({ appSettings, setAppSettings, showNotification }) {
-  const [formData, setFormData] = useState({ ...appSettings });
-  const handleSave = (e) => {
-    e.preventDefault();
-    setAppSettings(formData);
-    showNotification("Konfigurasi sistem berhasil disimpan!");
-  };
-
-  return (
-    <div className="animate-in fade-in max-w-2xl mx-auto text-left">
-      <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm p-8">
-        <div className="flex items-center gap-4 mb-8">
-           <div className="bg-indigo-100 p-3 rounded-2xl text-indigo-600"><Globe size={24}/></div>
-           <div><h2 className="text-xl font-black uppercase tracking-tight leading-none mb-1">Konfigurasi Sinkronisasi</h2><p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Tautkan Google Sheets ke Sistem</p></div>
-        </div>
-        <form onSubmit={handleSave} className="space-y-6">
-           <div className="p-6 bg-slate-50 rounded-3xl space-y-4">
-              <div><label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest ml-1">DB Kendaraan Dinas (XLSX Link)</label><input value={formData.linkDbKendaraan} onChange={e => setFormData({...formData, linkDbKendaraan: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
-              <div><label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest ml-1">DB Peralatan Elektronik</label><input value={formData.linkDbElektronik} onChange={e => setFormData({...formData, linkDbElektronik: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
-              <div><label className="text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">DB Barang Lain</label><input value={formData.linkDbBarangLain} onChange={e => setFormData({...formData, linkDbBarangLain: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
-              <div><label className="text-[10px] font-black text-slate-600 uppercase tracking-widest ml-1">DB Backup Pengguna</label><input value={formData.linkDbUsers} onChange={e => setFormData({...formData, linkDbUsers: e.target.value})} className="w-full px-5 py-3 bg-white rounded-xl border border-gray-100 outline-none font-bold text-xs mt-1" placeholder="https://docs.google.com/spreadsheets/d/..." /></div>
-           </div>
-           <div className="p-5 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-start gap-4">
-              <Info className="text-indigo-600 shrink-0" size={20}/>
-              <p className="text-xs text-indigo-800 font-medium leading-relaxed">Pastikan tautan Google Sheets memiliki izin akses **"Anyone with the link"** sebagai **"Viewer"** agar sistem dapat mengekspor data secara otomatis.</p>
-           </div>
-           <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2"><Save size={20}/> Terapkan Tautan</button>
         </form>
       </div>
     </div>
